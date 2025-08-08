@@ -21,6 +21,19 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "WebFetch(domain:docs.dify.ai)"
+      "Bash(\"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe\" okds-installer.iss)",
+      "Bash(.OKDS-AI-Assistant.exe)",
+      "Bash(.scriptscode.bat)",
+      "Bash(npx electron-builder:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm rebuild:*)",
+      "Bash(npm run watch-extensions:*)",
+      "Bash(taskkill:*)",
+      "Bash(Remove-Item -Recurse -Force node_modules@parcel -ErrorAction SilentlyContinue)",
+      "Bash(node:*)",
+      "Bash(Copy-Item \"C:\\dsCodeAssistant\\src\\vs\\workbench\\contrib\\void\\browser\\react\\src\\void-onboarding\\VoidOnboarding.tsx.backup\" \"C:\\dsCodeAssistant\\src\\vs\\workbench\\contrib\\void\\browser\\react\\src\\void-onboarding\\VoidOnboarding.tsx\" -Force)",
+      "Bash(dir:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }
