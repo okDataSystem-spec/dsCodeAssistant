@@ -885,13 +885,13 @@ const sendDifyChat = async ({
 		// Convert Void messages to Dify chat format
 		const difyMessages = [];
 
-		// Add system message if present
-		if (separateSystemMessage) {
-			difyMessages.push({
-				role: 'system',
-				content: separateSystemMessage
-			});
-		}
+		// // Add system message if present
+		// if (separateSystemMessage) {
+		// 	difyMessages.push({
+		// 		role: 'system',
+		// 		content: separateSystemMessage
+		// 	});
+		// }
 
 		// Convert conversation messages
 		for (const msg of messages) {
@@ -906,14 +906,16 @@ const sendDifyChat = async ({
 		// Get the last user message as query
 		const lastUserMessage = difyMessages.filter(m => m.role === 'user').pop();
 		const query = lastUserMessage?.content || 'Hello';
+		const full_query = separateSystemMessage ? `${separateSystemMessage}\n\n${query}` : query;
 
 		// Prepare Dify API request
 		const requestBody = {
 			inputs: {},
-			query: query,
+			query: full_query,
 			response_mode: 'streaming',
 			conversation_id: '',
 			user: getUserIP(),
+			files: []
 		};
 
 		const url = new URL('/v1/chat-messages', endpoint);
@@ -921,6 +923,16 @@ const sendDifyChat = async ({
 		const httpModule = isHttps ? https : http;
 
 		const postData = JSON.stringify(requestBody);
+		console.log('Dify API Request:', {
+			url: url.toString(),
+			headers: {
+				'Content-Type': 'application/json',
+				'Authorization': `Bearer ${apiKey.substring(0, 10)}...`,
+				'Content-Length': Buffer.byteLength(postData),
+			},
+			body: requestBody
+		});
+
 		const options = {
 			hostname: url.hostname,
 			port: url.port || (isHttps ? 443 : 80),
@@ -938,9 +950,17 @@ const sendDifyChat = async ({
 
 		const req = httpModule.request(options, (res) => {
 			if (res.statusCode !== 200) {
-				onError({
-					message: `Dify API error: ${res.statusCode} ${res.statusMessage}`,
-					fullError: null
+				let errorBody = '';
+				res.setEncoding('utf8');
+				res.on('data', (chunk) => {
+					errorBody += chunk;
+				});
+				res.on('end', () => {
+					console.error('Dify API Error Response:', errorBody);
+					onError({
+						message: `Dify API error: ${res.statusCode} ${res.statusMessage}. Response: ${errorBody}`,
+						fullError: null
+					});
 				});
 				return;
 			}

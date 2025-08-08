@@ -18,6 +18,9 @@
       "Bash(del buildnul)",
       "Bash(Remove-Item -Force \"build\\nul\" -ErrorAction SilentlyContinue)",
       "Bash(rm:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:docs.dify.ai)"
       "Bash(\"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe\" okds-installer.iss)",
       "Bash(.OKDS-AI-Assistant.exe)",
       "Bash(.scriptscode.bat)",
