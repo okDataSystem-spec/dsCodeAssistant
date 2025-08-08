@@ -195,13 +195,13 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 	const searchForFilesOrFolders = async (t: string, searchFor: 'files' | 'folders') => {
 		try {
 
-			const searchResults = (await (await toolsService.callTool.search_pathnames_only({
-				query: t,
-				includePattern: null,
-				pageNumber: 1,
-			})).result).uris
-
 			if (searchFor === 'files') {
+				const searchResults = (await (await toolsService.callTool.search_pathnames_only({
+					query: t,
+					includePattern: null,
+					pageNumber: 1,
+				})).result).uris
+				
 				const res: Option[] = searchResults.map(uri => {
 					const relativePath = getRelativeWorkspacePath(accessor, uri)
 					return {
@@ -216,69 +216,149 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 			}
 
 			else if (searchFor === 'folders') {
-				// Extract unique directory paths from the results
+				// OKDS: Enhanced folder search - Get all folders, not just from file results
 				const directoryMap = new Map<string, URI>();
+				const workspaceService = accessor.get('IWorkspaceContextService');
+				const workspaceFolders = workspaceService.getWorkspace().folders;
+				
+				// If search text is empty, get all folders recursively
+				if (!t || t.trim() === '') {
+					// Get all folders from workspace
+					for (const workspaceFolder of workspaceFolders) {
+						try {
+							// List directory contents
+							const lsResult = await (await toolsService.callTool.ls_dir({
+								uri: workspaceFolder.uri,
+								pageNumber: 1
+							})).result;
+							
+							if (lsResult.children) {
+								// Add all directories from ls_dir result
+								for (const child of lsResult.children) {
+									if (child.isDirectory) {
+										const folderUri = URI.joinPath(workspaceFolder.uri, child.name);
+										const relativePath = getRelativeWorkspacePath(accessor, folderUri);
+										directoryMap.set(relativePath, folderUri);
+										
+										// Recursively get subdirectories (limited depth)
+										await addSubdirectories(folderUri, directoryMap, 2);
+									}
+								}
+							}
+						} catch (err) {
+							console.warn('Error getting directory listing:', err);
+						}
+					}
+				} else {
+					// Search for folders by name
+					// First try to search for files with the pattern and extract folders
+					const searchResults = (await (await toolsService.callTool.search_pathnames_only({
+						query: `*${t}*`,  // Search for folder names containing the text
+						includePattern: null,
+						pageNumber: 1,
+					})).result).uris;
 
-				for (const uri of searchResults) {
-					if (!uri) continue;
-
-					// Get the full path and extract directories
-					const relativePath = getRelativeWorkspacePath(accessor, uri)
-					const pathParts = relativePath.split('/');
-
-					// Get workspace info
-					const workspaceService = accessor.get('IWorkspaceContextService');
-					const workspaceFolders = workspaceService.getWorkspace().folders;
-
-					// Find the workspace folder containing this URI
-					let workspaceFolderUri: URI | undefined;
-					if (workspaceFolders.length) {
-						// Sort workspace folders by path length (descending) to match the most specific folder first
-						const sortedFolders = [...workspaceFolders].sort((a, b) =>
-							b.uri.fsPath.length - a.uri.fsPath.length
-						);
-
-						// Find the containing workspace folder
-						for (const folder of sortedFolders) {
-							const folderPath = folder.uri.fsPath.endsWith('/') ? folder.uri.fsPath : folder.uri.fsPath + '/';
-							const uriPath = uri.fsPath.endsWith('/') ? uri.fsPath : uri.fsPath + '/';
-
-							if (uriPath.startsWith(folderPath)) {
+					// Extract unique directory paths from search results
+					for (const uri of searchResults) {
+						if (!uri) continue;
+						const relativePath = getRelativeWorkspacePath(accessor, uri);
+						const pathParts = relativePath.split('/');
+						
+						// Find workspace folder for this URI
+						let workspaceFolderUri: URI | undefined;
+						for (const folder of workspaceFolders) {
+							if (uri.fsPath.startsWith(folder.uri.fsPath)) {
 								workspaceFolderUri = folder.uri;
 								break;
 							}
 						}
+						
+						if (workspaceFolderUri) {
+							// Add all parent directories that match search
+							let currentPath = '';
+							for (let i = 0; i < pathParts.length - 1; i++) {
+								if (i === 0) {
+									currentPath = pathParts[i];
+								} else {
+									currentPath = `${currentPath}/${pathParts[i]}`;
+								}
+								
+								// Only add if folder name matches search text
+								const folderName = pathParts[i];
+								if (folderName.toLowerCase().includes(t.toLowerCase())) {
+									const directoryUri = URI.joinPath(workspaceFolderUri, currentPath);
+									directoryMap.set(currentPath, directoryUri);
+								}
+							}
+						}
 					}
-
-					if (workspaceFolderUri) {
-						// Add each directory and its parents to the map
-						let currentPath = '';
-						for (let i = 0; i < pathParts.length - 1; i++) {
-							currentPath = i === 0 ? `/${pathParts[i]}` : `${currentPath}/${pathParts[i]}`;
-
-
-							// Create a proper directory URI
-							const directoryUri = URI.joinPath(
-								workspaceFolderUri,
-								currentPath.startsWith('/') ? currentPath.substring(1) : currentPath
-							);
-
-							directoryMap.set(currentPath, directoryUri);
+					
+					// Also search in workspace root folders
+					for (const workspaceFolder of workspaceFolders) {
+						try {
+							const lsResult = await (await toolsService.callTool.ls_dir({
+								uri: workspaceFolder.uri,
+								pageNumber: 1
+							})).result;
+							
+							if (lsResult.children) {
+								for (const child of lsResult.children) {
+									if (child.isDirectory && child.name.toLowerCase().includes(t.toLowerCase())) {
+										const folderUri = URI.joinPath(workspaceFolder.uri, child.name);
+										const relativePath = getRelativeWorkspacePath(accessor, folderUri);
+										directoryMap.set(relativePath, folderUri);
+									}
+								}
+							}
+						} catch (err) {
+							console.warn('Error listing directory:', err);
 						}
 					}
 				}
-				// Convert map to array
-				return Array.from(directoryMap.entries()).map(([relativePath, uri]) => ({
-					leafNodeType: 'Folder',
-					uri: uri,
-					iconInMenu: Folder, // Folder
-					fullName: relativePath,
-					abbreviatedName: getAbbreviatedName(relativePath),
-				})) satisfies Option[];
+				
+				// Convert map to array and sort by path
+				const folders = Array.from(directoryMap.entries())
+					.map(([relativePath, uri]) => ({
+						leafNodeType: 'Folder' as const,
+						uri: uri,
+						iconInMenu: Folder,
+						fullName: relativePath,
+						abbreviatedName: getAbbreviatedName(relativePath),
+					}))
+					.sort((a, b) => a.fullName.localeCompare(b.fullName));
+				
+				return folders;
 			}
 		} catch (error) {
 			console.error('Error fetching directories:', error);
 			return [];
+		}
+		
+		// Helper function to recursively add subdirectories
+		async function addSubdirectories(parentUri: URI, map: Map<string, URI>, depth: number) {
+			if (depth <= 0) return;
+			
+			try {
+				const lsResult = await (await toolsService.callTool.ls_dir({
+					uri: parentUri,
+					pageNumber: 1
+				})).result;
+				
+				if (lsResult.children) {
+					for (const child of lsResult.children) {
+						if (child.isDirectory) {
+							const folderUri = URI.joinPath(parentUri, child.name);
+							const relativePath = getRelativeWorkspacePath(accessor, folderUri);
+							map.set(relativePath, folderUri);
+							
+							// Recursive call with reduced depth
+							await addSubdirectories(folderUri, map, depth - 1);
+						}
+					}
+				}
+			} catch (err) {
+				// Silently ignore errors in subdirectories
+			}
 		}
 	};
 
