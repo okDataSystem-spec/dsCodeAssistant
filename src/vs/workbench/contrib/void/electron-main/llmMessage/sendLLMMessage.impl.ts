@@ -876,7 +876,6 @@ const sendDifyChat = async ({
 }: SendChatParams_Internal) => {
 	try {
 		const { apiKey, endpoint } = settingsOfProvider.dify;
-		console.log(separateSystemMessage);
 
 		if (!apiKey || !endpoint) {
 			onError({ message: 'Dify configuration is incomplete. Please check API key and endpoint.', fullError: null });
