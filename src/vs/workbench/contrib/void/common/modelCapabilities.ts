@@ -1466,7 +1466,7 @@ const difyModelOptions = {
 		cost: { input: 0, output: 0 },
 		downloadable: false,
 		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
+		supportsSystemMessage: 'separated',
 		reasoningCapabilities: false,
 	},
 } as const satisfies { [s: string]: VoidStaticModelInfo }
