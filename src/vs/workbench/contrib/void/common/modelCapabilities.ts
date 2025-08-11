@@ -181,7 +181,7 @@ export type VoidStaticModelInfo = { // not stateful
 	reservedOutputTokenSpace: number | null; // reserve this much space in the context window for output, defaults to 4096 if null
 
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated'; // typically you should use 'system-role'. 'separated' means the system message is passed as a separate field (e.g. anthropic)
-	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style', // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
+	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style' | 'harmony' // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 
 	additionalOpenAIPayload?: { [key: string]: string } // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
@@ -1489,10 +1489,15 @@ const gptOSSModelOptions = {
 		reservedOutputTokenSpace: 8_192,
 		cost: { input: 0, output: 0 },
 		downloadable: false,
-		supportsFIM: true,
+		supportsFIM: false,
 		supportsSystemMessage: 'system-role' as const,
-		specialToolFormat: 'openai-style' as const,
-		reasoningCapabilities: false as const,
+		specialToolFormat: 'harmony' as const,
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' }
+		} as const,
 	},
 } as const satisfies { [s: string]: VoidStaticModelInfo }
 

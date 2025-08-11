@@ -13,6 +13,7 @@ import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
 import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
 import { GoogleAuth } from 'google-auth-library'
 import { AnthropicLLMChatMessage, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { HarmonyEncoder, HarmonyMessage, ParsedHarmonyResponse, HARMONY_TOKENS } from './harmonyEncoder.js';
 import { ChatMode, displayInfoOfProviderName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/voidSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -21,7 +22,6 @@ import { generateUuid } from '../../../../../base/common/uuid.js';
 import * as https from 'https';
 import * as http from 'http';
 import * as os from 'os';
-import { HarmonyEncoder, HarmonyMessage, ParsedHarmonyResponse } from './harmonyEncoder.js';
 
 const getGoogleApiKey = async () => {
 	// module‑level singleton
@@ -1098,7 +1098,7 @@ const sendGPTOSSHarmonyChat = async ({
 			prompt: harmonyPrompt,
 			stream: true,
 			max_tokens: maxTokens ?? 8192,  // 기본값으로 8192 fallback
-			stop: ['<|return|>', '<|call|>'],
+			stop: [HARMONY_TOKENS.RETURN, HARMONY_TOKENS.CALL],
 			...additionalOpenAIPayload
 		})
 
