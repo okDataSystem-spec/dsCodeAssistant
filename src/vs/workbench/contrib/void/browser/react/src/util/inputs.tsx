@@ -196,8 +196,10 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 		try {
 
 			if (searchFor === 'files') {
+				// OKDS: Improved Korean search support
+				const searchQuery = t.trim() ? `*${t}*` : t;
 				const searchResults = (await (await toolsService.callTool.search_pathnames_only({
-					query: t,
+					query: searchQuery,
 					includePattern: null,
 					pageNumber: 1,
 				})).result).uris
@@ -433,8 +435,13 @@ type InputBox2Props = {
 	onFocus?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
 	onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
 	onChangeHeight?: (newHeight: number) => void;
+	// OKDS: Drag and drop event handlers
+	onDrop?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
+	onDragOver?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
+	onDragEnter?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
+	onDragLeave?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
 }
-export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className, onKeyDown, onFocus, onBlur, onChangeText }, ref) {
+export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className, onKeyDown, onFocus, onBlur, onChangeText, onDrop, onDragOver, onDragEnter, onDragLeave }, ref) {
 
 
 	// mirrors whatever is in ref
@@ -830,6 +837,12 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 			onFocus={onFocus}
 			onBlur={onBlur}
+			
+			// OKDS: Drag and drop handlers
+			onDrop={onDrop}
+			onDragOver={onDragOver}
+			onDragEnter={onDragEnter}
+			onDragLeave={onDragLeave}
 
 			disabled={!isEnabled}
 

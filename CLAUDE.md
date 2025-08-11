@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🌍 언어 규칙 (Language Rules)
+**중요**: 사용자와의 모든 대화는 반드시 한국어로 진행해야 합니다.
+- 코드 주석과 코드 자체는 영어 유지
+- 설명, 안내, 대화는 모두 한국어 사용
+- 기술 용어는 필요시 영어 병기 가능 (예: 패치(patch), 빌드(build))
+
 ## 🚨 CRITICAL: DO NOT MODIFY ORIGINAL VOID FILES
 
 This is a FORK of Void (VS Code) open source project. The original files MUST NOT be modified directly because:
