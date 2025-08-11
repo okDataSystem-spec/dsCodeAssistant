@@ -69,6 +69,10 @@ export const defaultProviderSettings = {
 		endpoint: 'http://ok-ai.okfngroup.com', // Dify API endpoint
 		apiKey: '', // Dify API key (Bearer token)
 	},
+	gptOSS: {
+		endpoint: 'http://localhost:8000', // GPT OSS API endpoint
+		apiKey: '', // GPT OSS API key if required
+	},
 
 } as const
 
@@ -159,6 +163,9 @@ export const defaultModelsOfProvider = {
 	liteLLM: [],
 	dify: [ // Dify workflow models
 		'dify-workflow',
+	],
+	gptOSS: [ // GPT OSS models
+		'gpt-oss-model',
 	],
 
 
@@ -1476,6 +1483,24 @@ const difySettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => { return null },
 }
 
+const gptOSSModelOptions = {
+	'gpt-oss-model': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 4_096,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role' as const,
+		specialToolFormat: 'openai-style' as const,
+		reasoningCapabilities: false as const,
+	},
+} as const satisfies { [s: string]: VoidStaticModelInfo }
+
+const gptOSSSettings: VoidStaticProviderInfo = {
+	modelOptions: gptOSSModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+}
+
 
 const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProviderInfo } = {
 	openAI: openAISettings,
@@ -1501,6 +1526,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	microsoftAzure: microsoftAzureSettings,
 	awsBedrock: awsBedrockSettings,
 	dify: difySettings,
+	gptOSS: gptOSSSettings,
 } as const
 
 
