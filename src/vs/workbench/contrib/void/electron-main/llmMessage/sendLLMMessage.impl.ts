@@ -1088,11 +1088,16 @@ const sendGPTOSSHarmonyChat = async ({
 		})
 
 		// 4. Raw completion 방식 사용 (Harmony 형식에는 이 방식이 필요)
+		const maxTokens = getReservedOutputTokenSpace(providerName, modelName_, {
+			isReasoningEnabled: false, // Harmony 자체 추론 시스템 사용
+			overridesOfModel
+		})
+
 		const response = await openai.completions.create({
 			model: modelName,
 			prompt: harmonyPrompt,
 			stream: true,
-			max_tokens: 4096,
+			max_tokens: maxTokens ?? 8192,  // 기본값으로 8192 fallback
 			stop: ['<|return|>', '<|call|>'],
 			...additionalOpenAIPayload
 		})
@@ -1110,7 +1115,10 @@ const sendGPTOSSHarmonyChat = async ({
 			const text = chunk.choices[0]?.text
 			if (text) {
 				fullResponse += text
-				onText(text)  // 실시간 스트리밍
+				onText({  // 객체로 변경
+					fullText: fullResponse,
+					fullReasoning: ''
+				})
 			}
 		}
 

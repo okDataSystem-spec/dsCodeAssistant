@@ -1486,7 +1486,7 @@ const difySettings: VoidStaticProviderInfo = {
 const gptOSSModelOptions = {
 	'gpt-oss-model': {
 		contextWindow: 128_000,
-		reservedOutputTokenSpace: 4_096,
+		reservedOutputTokenSpace: 8_192,
 		cost: { input: 0, output: 0 },
 		downloadable: false,
 		supportsFIM: true,
