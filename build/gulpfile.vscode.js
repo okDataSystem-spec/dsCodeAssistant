@@ -498,6 +498,18 @@ BUILD_TARGETS.forEach(buildTarget => {
 
 		if (platform === 'win32') {
 			tasks.push(patchWin32DependenciesTask(destinationFolderName));
+			// Add icon update task for Windows builds
+			const updateIconTask = (cb) => {
+				const exePath = path.join(buildRoot, destinationFolderName, product.nameShort + '.exe');
+				const iconPath = path.join(root, 'resources', 'win32', 'code.ico');
+				rcedit(exePath, { icon: iconPath })
+					.then(() => cb())
+					.catch(err => {
+						console.warn(`Warning: Could not set icon: ${err.message}`);
+						cb(); // Continue build even if icon fails
+					});
+			};
+			tasks.push(updateIconTask);
 		}
 
 		const vscodeTaskCI = task.define(`vscode${dashed(platform)}${dashed(arch)}${dashed(minified)}-ci`, task.series(...tasks));
