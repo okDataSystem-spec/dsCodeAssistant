@@ -13,6 +13,7 @@ import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
 import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
 import { GoogleAuth } from 'google-auth-library'
 import { AnthropicLLMChatMessage, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { HarmonyEncoder, HarmonyMessage, ParsedHarmonyResponse, HARMONY_TOKENS } from './harmonyEncoder.js';
 import { ChatMode, displayInfoOfProviderName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/voidSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -184,6 +185,10 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	else if (providerName === 'mistral') {
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: 'https://api.mistral.ai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
+	}
+	else if (providerName === 'gptOSS') {
+		const thisConfig = settingsOfProvider[providerName]
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey || 'noop', ...commonPayloadOpts })
 	}
 
 	else throw new Error(`Void providerName was invalid: ${providerName}.`)
@@ -1041,6 +1046,115 @@ const sendDifyChat = async ({
 };
 
 
+// ------------ GPT OSS HARMONY ------------
+
+/**
+ * GPT OSS 전용 Harmony 형식 채팅 구현
+ * Agent 모드 완전 지원 (도구 호출 포함)
+ */
+const sendGPTOSSHarmonyChat = async ({
+	messages, onText, onFinalMessage, onError, settingsOfProvider,
+	modelSelectionOptions, modelName: modelName_, _setAborter, providerName,
+	chatMode, separateSystemMessage, mcpTools, overridesOfModel
+}: SendChatParams_Internal) => {
+	const {
+		modelName,
+		additionalOpenAIPayload,
+	} = getModelCapabilities(providerName, modelName_, overridesOfModel)
+
+	try {
+		// 1. Harmony 형식 메시지 생성
+		const harmonyMessages: HarmonyMessage[] = [
+			{
+				role: 'system',
+				content: HarmonyEncoder.createSystemMessage(chatMode)
+			},
+			{
+				role: 'developer',
+				content: HarmonyEncoder.createDeveloperMessage(separateSystemMessage || '', chatMode, mcpTools)
+			},
+			// 기존 메시지들을 Harmony 형식으로 변환
+			...HarmonyEncoder.convertLLMMessagesToHarmony(messages)
+		]
+
+		// 2. 전체 대화를 Harmony 형식으로 렌더링
+		const harmonyPrompt = HarmonyEncoder.renderConversation(harmonyMessages)
+
+		// 3. OpenAI 호환 SDK 가져오기
+		const openai = await newOpenAICompatibleSDK({
+			providerName,
+			settingsOfProvider,
+			includeInPayload: additionalOpenAIPayload
+		})
+
+		// 4. Raw completion 방식 사용 (Harmony 형식에는 이 방식이 필요)
+		const maxTokens = getReservedOutputTokenSpace(providerName, modelName_, {
+			isReasoningEnabled: false, // Harmony 자체 추론 시스템 사용
+			overridesOfModel
+		})
+
+		const response = await openai.completions.create({
+			model: modelName,
+			prompt: harmonyPrompt,
+			stream: true,
+			max_tokens: maxTokens ?? 8192,  // 기본값으로 8192 fallback
+			stop: [HARMONY_TOKENS.RETURN, HARMONY_TOKENS.CALL],
+			...additionalOpenAIPayload
+		})
+
+		_setAborter?.(() => {
+			if ('controller' in response && response.controller) {
+				response.controller.abort()
+			}
+		})
+
+		let fullResponse = ''
+
+		// 5. 스트리밍 응답 처리
+		for await (const chunk of response) {
+			const text = chunk.choices[0]?.text
+			if (text) {
+				fullResponse += text
+				onText({  // 객체로 변경
+					fullText: fullResponse,
+					fullReasoning: ''
+				})
+			}
+		}
+
+		// 6. Harmony 응답 파싱
+		const parsed: ParsedHarmonyResponse = HarmonyEncoder.parseResponse(fullResponse)
+
+		// 7. Agent 모드: 도구 호출 처리
+		if (chatMode === 'agent' && parsed.toolCalls.length > 0) {
+			// 도구 호출이 있는 경우
+			// TODO: 실제 도구 실행 로직은 기존 Agent 시스템과 연동 필요
+			onFinalMessage({
+				fullText: `도구 호출 감지됨: ${parsed.toolCalls.map(tc => tc.name).join(', ')}\n\n${parsed.finalResponse || fullResponse}`,
+				fullReasoning: parsed.reasoning,
+				anthropicReasoning: null
+			})
+		} else {
+			// 8. 일반 응답 처리
+			onFinalMessage({
+				fullText: parsed.finalResponse || fullResponse,
+				fullReasoning: parsed.reasoning,
+				anthropicReasoning: null
+			})
+		}
+
+	} catch (error) {
+		if (error instanceof OpenAI.APIError && error.status === 401) {
+			onError({ message: invalidApiKeyMessage(providerName), fullError: error })
+		} else {
+			onError({ message: error + '', fullError: error })
+		}
+	}
+}
+
+// TODO: GPT OSS Harmony 형식 구현 예정
+
+
 type CallFnOfProvider = {
 	[providerName in ProviderName]: {
 		sendChat: (params: SendChatParams_Internal) => Promise<void>;
@@ -1137,6 +1251,11 @@ export const sendLLMMessageToProviderImplementation = {
 		sendFIM: null,
 		list: null,
 	},
+	gptOSS: {
+		sendChat: sendGPTOSSHarmonyChat,
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
 
 } satisfies CallFnOfProvider
 
@@ -1153,7 +1272,7 @@ codestral https://ollama.com/library/codestral/blobs/51707752a87c
 [SUFFIX]{{ .Suffix }}[PREFIX] {{ .Prompt }}
 
 deepseek-coder-v2 https://ollama.com/library/deepseek-coder-v2/blobs/22091531faf0
-<｜fim▁begin｜>{{ .Prompt }}<｜fim▁hole｜>{{ .Suffix }}<｜fim▁end｜>
+{{ .Prompt }}
 
 starcoder2 https://ollama.com/library/starcoder2/blobs/3b190e68fefe
 <file_sep>

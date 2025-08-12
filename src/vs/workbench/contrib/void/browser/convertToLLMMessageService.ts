@@ -255,7 +255,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 	systemMessage: string,
 	aiInstructions: string,
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | undefined,
+	specialToolFormat: 'openai-style' | 'anthropic-style' | 'harmony' | undefined,
 	supportsAnthropicReasoning: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,
@@ -379,6 +379,11 @@ const prepareOpenAIOrAnthropicMessages = ({
 	else if (specialToolFormat === 'openai-style') {
 		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
 	}
+	else if (specialToolFormat === 'harmony') {
+		// GPT OSS Harmony 형식: sendLLMMessage.impl.ts에서 직접 처리됨
+		// 여기서는 기본 변환만 수행하고 실제 Harmony 변환은 백엔드에서 처리
+		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
+	}
 	const llmMessages = llmChatMessages
 
 
@@ -496,7 +501,7 @@ const prepareMessages = (params: {
 	systemMessage: string,
 	aiInstructions: string,
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined,
+	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | 'harmony' | undefined,
 	supportsAnthropicReasoning: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,
@@ -576,7 +581,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 
 	// system message
-	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
+	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | 'harmony' | undefined) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
