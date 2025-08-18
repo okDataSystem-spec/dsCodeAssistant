@@ -169,7 +169,7 @@ export const defaultModelsOfProvider = {
 	],
 
 
-} as const satisfies Record<ProviderName, string[]>
+} as const satisfies Record<string, string[]>
 
 
 
