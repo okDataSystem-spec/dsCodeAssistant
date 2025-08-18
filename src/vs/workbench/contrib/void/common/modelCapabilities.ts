@@ -368,6 +368,7 @@ const openSourceModelOptions_assumingOAICompat = {
 	'qwen3': {
 		supportsFIM: false, // replaces QwQ
 		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Qwen3는 OpenAI 스타일 도구 호출 형식 사용
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
 		contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
 	},
