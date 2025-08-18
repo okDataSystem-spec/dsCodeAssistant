@@ -12,6 +12,8 @@ import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
+// OKDS: Import drag and drop handlers - TEMPORARILY DISABLED
+// import { handleFileDrop, handleDragOver, handleDragEnter, handleDragLeave } from '../util/dragDropHandler.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlider, VoidSwitch, VoidDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../void-settings-tsx/ModelDropdown.js';
@@ -1165,6 +1167,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				onKeyDown={onKeyDown}
 				fnsRef={textAreaFnsRef}
 				multiline={true}
+				// OKDS: Drag and drop handlers
+				onDrop={handleFileDrop}
+				onDragOver={handleDragOver}
+				onDragEnter={handleDragEnter}
+				onDragLeave={handleDragLeave}
 			/>
 		</VoidChatArea>
 	}
@@ -2886,6 +2893,167 @@ export const SidebarChat = () => {
 	const commandService = accessor.get('ICommandService')
 	const chatThreadsService = accessor.get('IChatThreadService')
 
+	// OKDS: Inline drag and drop handlers
+	const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+		e.stopPropagation();
+
+		console.log('[OKDS Drag&Drop] Drop event triggered');
+
+		const dataTransfer = e.dataTransfer;
+		if (!dataTransfer) return;
+
+		// Get current thread and selections
+		const currentThread = chatThreadsService.getCurrentThread();
+		const currentSelections = currentThread.state.stagingSelections || [];
+		const newSelections = [...currentSelections];
+
+		// Log all available data types for debugging
+		console.log('[OKDS Drag&Drop] Available data types:', Array.from(dataTransfer.types));
+
+		// Try to get VS Code specific data
+		const codeEditorData = dataTransfer.getData('code-editor-data');
+		if (codeEditorData) {
+			try {
+				const parsedData = JSON.parse(codeEditorData);
+				console.log('[OKDS Drag&Drop] Code editor data:', parsedData);
+
+				if (parsedData.resources) {
+					for (const resource of parsedData.resources) {
+						const uri = URI.revive(resource);
+						
+						// Check for duplicates
+						const isDuplicate = currentSelections.some(selection => 
+							selection.uri && selection.uri.toString() === uri.toString()
+						);
+						
+						if (isDuplicate) {
+							console.log('[OKDS Drag&Drop] File already added, skipping:', uri.toString());
+							continue;
+						}
+						
+						console.log('[OKDS Drag&Drop] Adding file:', uri.toString());
+
+						// Add to selections like @ mention does
+						newSelections.push({
+							type: 'File',
+							uri: uri,
+							language: 'plaintext',
+							state: { wasAddedAsCurrentFile: false }
+						});
+					}
+
+					// Update selections
+					chatThreadsService.setCurrentThreadState({ stagingSelections: newSelections });
+					return;
+				}
+			} catch (err) {
+				console.error('[OKDS Drag&Drop] Error parsing code-editor-data:', err);
+			}
+		}
+
+		// Try ResourceURLs (VS Code internal format)
+		const resourceUrls = dataTransfer.getData('ResourceURLs');
+		if (resourceUrls) {
+			try {
+				const urls = JSON.parse(resourceUrls);
+				console.log('[OKDS Drag&Drop] ResourceURLs:', urls);
+
+				for (const url of urls) {
+					const uri = URI.parse(url);
+					
+					// Check for duplicates
+					const isDuplicate = currentSelections.some(selection => 
+						selection.uri && selection.uri.toString() === uri.toString()
+					);
+					
+					if (isDuplicate) {
+						console.log('[OKDS Drag&Drop] Resource already added, skipping:', uri.toString());
+						continue;
+					}
+					
+					console.log('[OKDS Drag&Drop] Adding resource:', uri.toString());
+
+					newSelections.push({
+						type: 'File',
+						uri: uri,
+						language: 'plaintext',
+						state: { wasAddedAsCurrentFile: false }
+					});
+				}
+
+				// Update selections
+				chatThreadsService.setCurrentThreadState({ stagingSelections: newSelections });
+				return;
+			} catch (err) {
+				console.error('[OKDS Drag&Drop] Error parsing ResourceURLs:', err);
+			}
+		}
+
+		// Try text/uri-list
+		const uriList = dataTransfer.getData('text/uri-list');
+		if (uriList) {
+			console.log('[OKDS Drag&Drop] URI list:', uriList);
+			const uris = uriList.split('\n').filter(uri => uri && !uri.startsWith('#'));
+
+			for (const uriStr of uris) {
+				try {
+					let uri;
+					if (uriStr.startsWith('file://')) {
+						uri = URI.parse(uriStr);
+					} else {
+						uri = URI.file(uriStr);
+					}
+
+					// Check for duplicates
+					const isDuplicate = currentSelections.some(selection => 
+						selection.uri && selection.uri.toString() === uri.toString()
+					);
+					
+					if (isDuplicate) {
+						console.log('[OKDS Drag&Drop] URI already added, skipping:', uri.toString());
+						continue;
+					}
+					
+					console.log('[OKDS Drag&Drop] Adding URI:', uri.toString());
+					newSelections.push({
+						type: 'File',
+						uri: uri,
+						language: 'plaintext',
+						state: { wasAddedAsCurrentFile: false }
+					});
+				} catch (err) {
+					console.error('[OKDS Drag&Drop] Error processing URI:', uriStr, err);
+				}
+			}
+
+			if (newSelections.length > currentSelections.length) {
+				chatThreadsService.setCurrentThreadState({ stagingSelections: newSelections });
+			}
+		}
+
+		// Handle external files
+		if (dataTransfer.files && dataTransfer.files.length > 0) {
+			console.log('[OKDS Drag&Drop] External files:', dataTransfer.files.length);
+			// Note: External file drops need special handling in Electron
+		}
+	}, [chatThreadsService]);
+
+	const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+	}, []);
+
+	const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+		// OKDS: Border removed - no visual feedback
+	}, []);
+
+	const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+		// OKDS: Border removed - no visual feedback
+	}, [])
+
 	const settingsState = useSettingsState()
 	// ----- HIGHER STATE -----
 
@@ -3022,6 +3190,11 @@ export const SidebarChat = () => {
 			overflow-y-auto
 			${previousMessagesHTML.length === 0 && !displayContentSoFar ? 'hidden' : ''}
 		`}
+		// OKDS: Drag and drop handlers for messages area
+		onDrop={handleFileDrop}
+		onDragOver={handleDragOver}
+		onDragEnter={handleDragEnter}
+		onDragLeave={handleDragLeave}
 	>
 		{/* previous messages */}
 		{previousMessagesHTML}
@@ -3085,6 +3258,11 @@ export const SidebarChat = () => {
 			ref={textAreaRef}
 			fnsRef={textAreaFnsRef}
 			multiline={true}
+			// OKDS: Drag and drop handlers
+			onDrop={handleFileDrop}
+			onDragOver={handleDragOver}
+			onDragEnter={handleDragEnter}
+			onDragLeave={handleDragLeave}
 		/>
 
 	</VoidChatArea>
@@ -3129,6 +3307,11 @@ export const SidebarChat = () => {
 	const landingPageContent = <div
 		ref={sidebarRef}
 		className='w-full h-full max-h-full flex flex-col overflow-auto px-4'
+		// OKDS: Drag and drop handlers for landing page
+		onDrop={handleFileDrop}
+		onDragOver={handleDragOver}
+		onDragEnter={handleDragEnter}
+		onDragLeave={handleDragLeave}
 	>
 		<ErrorBoundary>
 			{landingPageInput}
@@ -3164,6 +3347,11 @@ export const SidebarChat = () => {
 	const threadPageContent = <div
 		ref={sidebarRef}
 		className='w-full h-full flex flex-col overflow-hidden'
+		// OKDS: Drag and drop handlers for thread page
+		onDrop={handleFileDrop}
+		onDragOver={handleDragOver}
+		onDragEnter={handleDragEnter}
+		onDragLeave={handleDragLeave}
 	>
 
 		<ErrorBoundary>
