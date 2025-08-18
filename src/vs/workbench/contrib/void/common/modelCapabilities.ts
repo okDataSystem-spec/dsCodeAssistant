@@ -69,6 +69,10 @@ export const defaultProviderSettings = {
 		endpoint: 'http://ok-ai.okfngroup.com', // Dify API endpoint
 		apiKey: '', // Dify API key (Bearer token)
 	},
+	gptOSS: {
+		endpoint: 'http://localhost:8000', // GPT OSS API endpoint
+		apiKey: '', // GPT OSS API key if required
+	},
 
 } as const
 
@@ -160,6 +164,9 @@ export const defaultModelsOfProvider = {
 	dify: [ // Dify workflow models
 		'dify-workflow',
 	],
+	gptOSS: [ // GPT OSS models
+		'gpt-oss-model',
+	],
 
 
 } as const satisfies Record<ProviderName, string[]>
@@ -174,7 +181,7 @@ export type VoidStaticModelInfo = { // not stateful
 	reservedOutputTokenSpace: number | null; // reserve this much space in the context window for output, defaults to 4096 if null
 
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated'; // typically you should use 'system-role'. 'separated' means the system message is passed as a separate field (e.g. anthropic)
-	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style', // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
+	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style' | 'harmony' // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 
 	additionalOpenAIPayload?: { [key: string]: string } // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
@@ -368,6 +375,7 @@ const openSourceModelOptions_assumingOAICompat = {
 	'qwen3': {
 		supportsFIM: false, // replaces QwQ
 		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Qwen3는 OpenAI 스타일 도구 호출 형식 사용
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
 		contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
 	},
@@ -1466,13 +1474,36 @@ const difyModelOptions = {
 		cost: { input: 0, output: 0 },
 		downloadable: false,
 		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
+		supportsSystemMessage: 'separated',
 		reasoningCapabilities: false,
 	},
 } as const satisfies { [s: string]: VoidStaticModelInfo }
 
 const difySettings: VoidStaticProviderInfo = {
 	modelOptions: difyModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+}
+
+const gptOSSModelOptions = {
+	'gpt-oss-model': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role' as const,
+		specialToolFormat: 'harmony' as const,
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' }
+		} as const,
+	},
+} as const satisfies { [s: string]: VoidStaticModelInfo }
+
+const gptOSSSettings: VoidStaticProviderInfo = {
+	modelOptions: gptOSSModelOptions,
 	modelOptionsFallback: (modelName) => { return null },
 }
 
@@ -1501,6 +1532,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	microsoftAzure: microsoftAzureSettings,
 	awsBedrock: awsBedrockSettings,
 	dify: difySettings,
+	gptOSS: gptOSSSettings,
 } as const
 
 
