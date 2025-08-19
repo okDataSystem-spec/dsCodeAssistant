@@ -164,7 +164,8 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 													providerName === 'microsoftAzure' ? 'key-...' :
 														providerName === 'awsBedrock' ? 'key-...' :
 															providerName === 'dify' ? 'app-key...' :
-																'',
+																providerName === 'gptOSS' ? 'gpt-oss-key...' :
+																	'',
 
 			isPasswordField: true,
 		}
@@ -180,7 +181,8 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 									providerName === 'liteLLM' ? 'baseURL' :
 										providerName === 'awsBedrock' ? 'Endpoint' :
 											providerName === 'dify' ? 'API Endpoint' :
-												'(never)',
+												providerName === 'gptOSS' ? 'Endpoint' :
+													'(never)',
 
 
 			placeholder: providerName === 'ollama' ? defaultProviderSettings.ollama.endpoint
@@ -190,7 +192,8 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 							: providerName === 'liteLLM' ? 'http://localhost:4000'
 								: providerName === 'awsBedrock' ? 'http://localhost:4000/v1'
 									: providerName === 'dify' ? 'http://ok-ai.okfngroup.com'
-										: '(never)',
+										: providerName === 'gptOSS' ? defaultProviderSettings.gptOSS.endpoint
+											: '(never)',
 
 
 		}

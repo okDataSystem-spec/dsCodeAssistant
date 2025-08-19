@@ -1267,7 +1267,7 @@ export const sendLLMMessageToProviderImplementation = {
 	gptOSS: {
 		sendChat: sendGPTOSSHarmonyChat,
 		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: null,
+		list: (params) => _openaiCompatibleList(params),
 	},
 
 } satisfies CallFnOfProvider

@@ -255,7 +255,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 	systemMessage: string,
 	aiInstructions: string,
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | 'harmony' | undefined,
+	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | 'harmony' | undefined,
 	supportsAnthropicReasoning: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,

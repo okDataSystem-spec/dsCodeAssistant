@@ -146,7 +146,12 @@ export class LLMMessageChannel implements IServerChannel {
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },
 			onError: (p) => { emitters.error.fire({ requestId, ...p }); },
 		}
-		sendLLMMessageToProviderImplementation[providerName].list(mainThreadParams)
+		const listFunction = sendLLMMessageToProviderImplementation[providerName].list;
+		if (listFunction) {
+			listFunction(mainThreadParams);
+		} else {
+			emitters.error.fire({ requestId, error: `Provider ${providerName} does not support model listing` });
+		}
 	}
 
 
