@@ -109,6 +109,9 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 	else if (providerName === 'dify') {
 		return { title: 'Dify Workflow', }
 	}
+	else if (providerName === 'gptOSS') {
+		return { title: 'GPT OSS Harmony', }
+	}
 
 	throw new Error(`descOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -132,6 +135,7 @@ export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 	if (providerName === 'lmStudio') return 'Read more about custom [Endpoints here](https://lmstudio.ai/docs/app/api/endpoints/openai).'
 	if (providerName === 'liteLLM') return 'Read more about endpoints [here](https://docs.litellm.ai/docs/providers/openai_compatible).'
 	if (providerName === 'dify') return 'Connect to your Dify platform. Get your Bearer token (app-xxxxxxxx) from your Dify dashboard.'
+	if (providerName === 'gptOSS') return 'Connect to your GPT OSS server with Harmony format support. Read more about [OpenAI Harmony](https://github.com/openai/harmony).'
 	throw new Error(`subTextMdOfProviderName: Unknown provider name: "${providerName}"`)
 }
 
@@ -251,9 +255,9 @@ const defaultCustomSettings: Record<CustomSettingName, undefined> = {
 }
 
 
-const modelInfoOfDefaultModelNames = (defaultModelNames: string[]): { models: VoidStatefulModelInfo[] } => {
+const modelInfoOfDefaultModelNames = (defaultModelNames: readonly string[]): { models: VoidStatefulModelInfo[] } => {
 	return {
-		models: defaultModelNames.map((modelName, i) => ({
+		models: defaultModelNames.map((modelName, _) => ({
 			modelName,
 			type: 'default',
 			isHidden: defaultModelNames.length >= 10, // hide all models if there are a ton of them, and make user enable them individually

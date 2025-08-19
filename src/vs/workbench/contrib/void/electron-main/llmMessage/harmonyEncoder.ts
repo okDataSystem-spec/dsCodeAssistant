@@ -95,7 +95,7 @@ export class HarmonyEncoder {
 		if (!chatMode || chatMode === 'normal') return '';
 
 		const tools = availableTools(chatMode, mcpTools);
-		if (!tools || tools.length === 0) return '';
+		if (!tools || !Array.isArray(tools) || tools.length === 0) return '';
 
 		const toolDefinitions = tools.map(tool => {
 			const { name, description, params } = tool;
@@ -162,6 +162,73 @@ ${toolDefinitions}`;
 		}
 
 		return message;
+	}
+
+	/**
+	 * Harmony 응답 부분 파싱 (스트리밍용)
+	 * 완성되지 않은 응답도 가능한 한 파싱하여 실시간 표시
+	 */
+	static parsePartialResponse(response: string): ParsedHarmonyResponse {
+		const messages: ParsedHarmonyResponse['messages'] = [];
+		let stopToken: ParsedHarmonyResponse['stopToken'];
+
+		// 완성된 메시지만 파싱 (미완성 메시지는 무시)
+		const completeMessageRegex = /<\|start\|>(\w+)(?:<\|channel\|>(\w+))?(?:\s+to=([\w.]+))?(?:\s+<\|constrain\|>(\w+))?<\|message\|>(.*?)<\|end\|>/gs;
+
+		let match;
+		while ((match = completeMessageRegex.exec(response)) !== null) {
+			const [, role, channel, recipient, contentType, content] = match;
+
+			messages.push({
+				role,
+				channel,
+				recipient,
+				content: content.trim(),
+				contentType
+			});
+		}
+
+		// Stop token 확인
+		if (response.includes('<|return|>')) {
+			stopToken = '<|return|>';
+		} else if (response.includes('<|call|>')) {
+			stopToken = '<|call|>';
+		}
+
+		// 채널별 내용 분리
+		const reasoning = messages
+			.filter(msg => msg.channel === 'analysis')
+			.map(msg => msg.content)
+			.join('\n');
+
+		const finalResponse = messages
+			.filter(msg => msg.channel === 'final')
+			.map(msg => msg.content)
+			.join('\n');
+
+		const toolCalls = messages
+			.filter(msg => msg.channel === 'commentary' && msg.recipient?.startsWith('functions.'))
+			.map(msg => {
+				try {
+					return {
+						name: msg.recipient!.replace('functions.', ''),
+						params: msg.contentType === 'json' ? JSON.parse(msg.content) : {}
+					};
+				} catch (e) {
+					return {
+						name: msg.recipient!.replace('functions.', ''),
+						params: {}
+					};
+				}
+			});
+
+		return {
+			messages,
+			stopToken,
+			reasoning,
+			finalResponse,
+			toolCalls
+		};
 	}
 
 	/**
