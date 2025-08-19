@@ -333,6 +333,16 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		// max_completion_tokens: maxTokens,
 	}
 
+	// OKDS PROMPT TODO>> Log complete prompt for OpenAI-compatible providers (including Ollama)
+	console.log('OKDS PROMPT TODO>> Provider:', providerName);
+	console.log('OKDS PROMPT TODO>> Model:', modelName);
+	console.log('OKDS PROMPT TODO>> Messages being sent:', JSON.stringify(messages, null, 2));
+	if (potentialTools && specialToolFormat === 'openai-style') {
+		console.log('OKDS PROMPT TODO>> Tools (native OpenAI format):', JSON.stringify(potentialTools, null, 2));
+	} else if (!specialToolFormat) {
+		console.log('OKDS PROMPT TODO>> Tools will be parsed from XML in responses');
+	}
+
 	// open source models - manually parse think tokens
 	const { needsManualParse: needsManualReasoningParse, nameOfFieldInDelta: nameOfReasoningFieldInDelta } = providerReasoningIOSettings?.output ?? {}
 	const manuallyParseReasoning = needsManualReasoningParse && canIOReasoning && openSourceThinkTags
@@ -506,6 +516,17 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		apiKey: thisConfig.apiKey,
 		dangerouslyAllowBrowser: true
 	});
+
+	// OKDS PROMPT TODO>> Log Anthropic prompt
+	console.log('OKDS PROMPT TODO>> Provider: anthropic');
+	console.log('OKDS PROMPT TODO>> Model:', modelName);
+	console.log('OKDS PROMPT TODO>> System Message:', separateSystemMessage);
+	console.log('OKDS PROMPT TODO>> Messages:', JSON.stringify(messages, null, 2));
+	if (potentialTools && specialToolFormat === 'anthropic-style') {
+		console.log('OKDS PROMPT TODO>> Tools (native Anthropic format):', JSON.stringify(potentialTools, null, 2));
+	} else if (!specialToolFormat) {
+		console.log('OKDS PROMPT TODO>> Tools will be parsed from XML in responses');
+	}
 
 	const stream = anthropic.messages.stream({
 		system: separateSystemMessage ?? undefined,

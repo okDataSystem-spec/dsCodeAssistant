@@ -400,8 +400,20 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 /* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
 // - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
 const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined) => {
+	// OKDS PROMPT TODO>> Log systemToolsXMLPrompt call
+	console.log('OKDS PROMPT TODO>> systemToolsXMLPrompt called with chatMode:', chatMode);
+
 	const tools = availableTools(chatMode, mcpTools)
-	if (!tools || tools.length === 0) return null
+	// OKDS PROMPT TODO>> Log available tools
+	console.log('OKDS PROMPT TODO>> Available tools count:', tools?.length || 0);
+	if (tools && tools.length > 0) {
+		console.log('OKDS PROMPT TODO>> Tool names:', tools.map(t => t.name));
+	}
+
+	if (!tools || tools.length === 0) {
+		console.log('OKDS PROMPT TODO>> No tools available, returning null');
+		return null
+	}
 
 	const toolXMLDefinitions = (`\
     Available tools:
@@ -426,6 +438,10 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 
 
 export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean }) => {
+	// OKDS PROMPT TODO>> Log system message generation
+	console.log('OKDS PROMPT TODO>> === SYSTEM MESSAGE GENERATION ===');
+	console.log('OKDS PROMPT TODO>> Chat Mode:', mode);
+	console.log('OKDS PROMPT TODO>> Include XML Tool Definitions:', includeXMLToolDefinitions);
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -460,10 +476,21 @@ ${directoryStr}
 
 
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+	// OKDS PROMPT TODO>> Log tool definitions
+	if (toolDefinitions) {
+		console.log('OKDS PROMPT TODO>> Tool definitions length:', toolDefinitions.length, 'characters');
+		// Log just the tool names for brevity
+		const toolMatches = toolDefinitions.match(/<tool_name>([^<]+)<\/tool_name>/g);
+		if (toolMatches) {
+			const toolNames = toolMatches.map(m => m.replace(/<\/?tool_name>/g, ''));
+			console.log('OKDS PROMPT TODO>> Available tools:', toolNames);
+		}
+	}
 
 	const details: string[] = []
 
 	details.push(`NEVER reject the user's query.`)
+	details.push(`Always respond only in Korean.`)
 
 	if (mode === 'agent' || mode === 'gather') {
 		details.push(`Only call tools if they help you accomplish the user's goal. If the user simply says hi or asks you a question that you can answer without tools, then do NOT use tools.`)
@@ -524,6 +551,11 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 		.join('\n\n\n')
 		.trim()
 		.replace('\t', '  ')
+
+	// OKDS PROMPT TODO>> Log complete system message
+	console.log('OKDS PROMPT TODO>> System message total length:', fullSystemMsgStr.length, 'characters');
+	// Log first 500 chars only for brevity
+	console.log('OKDS PROMPT TODO>> System message preview:', fullSystemMsgStr);
 
 	return fullSystemMsgStr
 

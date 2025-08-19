@@ -73,9 +73,22 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		// .listen sets up an IPC channel and takes a few ms, so we set up listeners immediately and add hooks to them instead
 		// llm
 		this._register((this.channel.listen('onText_sendLLMMessage') satisfies Event<EventLLMMessageOnTextParams>)(e => {
+			// OKDS PROMPT TODO>> Log streaming text (only first 100 chars to avoid spam)
+			if (e.fullText && e.fullText.length > 0) {
+				console.log('OKDS PROMPT TODO>> Streaming:', e.fullText.substring(0, 100) + (e.fullText.length > 100 ? '...' : ''));
+			}
 			this.llmMessageHooks.onText[e.requestId]?.(e)
 		}))
 		this._register((this.channel.listen('onFinalMessage_sendLLMMessage') satisfies Event<EventLLMMessageOnFinalMessageParams>)(e => {
+			// OKDS PROMPT TODO>> Log final response
+			console.log('OKDS PROMPT TODO>> === LLM RESPONSE ===');
+			console.log('OKDS PROMPT TODO>> Full Text:', e.fullText);
+			if (e.fullReasoning) {
+				console.log('OKDS PROMPT TODO>> Reasoning:', e.fullReasoning);
+			}
+			if (e.toolCall) {
+				console.log('OKDS PROMPT TODO>> Tool Call:', JSON.stringify(e.toolCall, null, 2));
+			}
 			this.llmMessageHooks.onFinalMessage[e.requestId]?.(e);
 			this._clearChannelHooks(e.requestId)
 		}))
@@ -102,6 +115,14 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		const { onText, onFinalMessage, onError, onAbort, modelSelection, ...proxyParams } = params;
+
+		// OKDS PROMPT TODO>> Log LLM request params
+		console.log('OKDS PROMPT TODO>> === LLM REQUEST ===');
+		console.log('OKDS PROMPT TODO>> Model Selection:', JSON.stringify(modelSelection, null, 2));
+		console.log('OKDS PROMPT TODO>> Messages Type:', params.messagesType);
+		if (params.messagesType === 'chatMessages' && params.messages) {
+			console.log('OKDS PROMPT TODO>> Chat Messages:', JSON.stringify(params.messages, null, 2));
+		}
 
 		// throw an error if no model/provider selected (this should usually never be reached, the UI should check this first, but might happen in cases like Apply where we haven't built much UI/checks yet, good practice to have check logic on backend)
 		if (modelSelection === null) {

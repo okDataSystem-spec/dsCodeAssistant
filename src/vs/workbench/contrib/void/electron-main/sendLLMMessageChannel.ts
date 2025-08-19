@@ -119,7 +119,9 @@ export class LLMMessageChannel implements IServerChannel {
 		if (!(requestId in this._infoOfRunningRequest)) return
 		const { waitForSend, abortRef } = this._infoOfRunningRequest[requestId]
 		await waitForSend // wait for the send to finish so we know abortRef was set
-		abortRef?.current?.()
+		if (abortRef?.current) {
+			abortRef.current()
+		}
 		delete this._infoOfRunningRequest[requestId]
 	}
 
@@ -146,7 +148,13 @@ export class LLMMessageChannel implements IServerChannel {
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },
 			onError: (p) => { emitters.error.fire({ requestId, ...p }); },
 		}
-		sendLLMMessageToProviderImplementation[providerName].list(mainThreadParams)
+		const implementation = sendLLMMessageToProviderImplementation[providerName];
+		if (implementation && implementation.list) {
+			implementation.list(mainThreadParams)
+		} else {
+			console.error(`List implementation not found for provider: ${providerName}`);
+			emitters.error.fire({ requestId, error: `List not supported for ${providerName}` });
+		}
 	}
 
 

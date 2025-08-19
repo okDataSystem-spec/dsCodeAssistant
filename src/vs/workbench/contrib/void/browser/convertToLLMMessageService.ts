@@ -595,6 +595,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 	// system message
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | 'harmony' | undefined) => {
+		// OKDS PROMPT TODO>> Log specialToolFormat
+		console.log('OKDS PROMPT TODO>> specialToolFormat:', specialToolFormat);
+		
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
@@ -607,6 +610,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		})
 
 		const includeXMLToolDefinitions = !specialToolFormat
+		// OKDS PROMPT TODO>> Log XML tool definitions decision
+		console.log('OKDS PROMPT TODO>> includeXMLToolDefinitions:', includeXMLToolDefinitions, '(specialToolFormat is', specialToolFormat ? `'${specialToolFormat}'` : 'undefined', ')')
 
 		const mcpTools = this.mcpService.getMCPTools()
 
