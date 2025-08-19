@@ -380,9 +380,22 @@ const prepareOpenAIOrAnthropicMessages = ({
 		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
 	}
 	else if (specialToolFormat === 'harmony') {
-		// GPT OSS Harmony 형식: sendLLMMessage.impl.ts에서 직접 처리됨
-		// 여기서는 기본 변환만 수행하고 실제 Harmony 변환은 백엔드에서 처리
-		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
+		// GPT OSS Harmony 형식: 실제 Harmony 변환은 sendLLMMessage.impl.ts에서 처리
+		// 여기서는 메시지를 최소한으로 변환하여 전달 (도구 호출 없이 텍스트만)
+		llmChatMessages = messages.map(msg => {
+			if (msg.role === 'tool') {
+				// Tool 메시지를 user 메시지로 변환 (Harmony에서는 도구 결과를 텍스트로 처리)
+				return {
+					role: 'user' as const,
+					content: `Tool result: ${msg.content}`
+				} as AnthropicOrOpenAILLMMessage
+			} else {
+				return {
+					role: msg.role as 'assistant' | 'user',
+					content: msg.content
+				} as AnthropicOrOpenAILLMMessage
+			}
+		})
 	}
 	const llmMessages = llmChatMessages
 

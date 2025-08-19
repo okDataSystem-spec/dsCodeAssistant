@@ -1115,9 +1115,13 @@ const sendGPTOSSHarmonyChat = async ({
 			const text = chunk.choices[0]?.text
 			if (text) {
 				fullResponse += text
-				onText({  // 객체로 변경
-					fullText: fullResponse,
-					fullReasoning: ''
+				
+				// 실시간 부분 파싱으로 사용자에게 깔끔한 UI 제공
+				const partialParsed = HarmonyEncoder.parsePartialResponse(fullResponse)
+				
+				onText({
+					fullText: partialParsed.finalResponse || '', // 완성된 final 채널 내용만 표시
+					fullReasoning: partialParsed.reasoning || '' // 완성된 analysis 채널 내용만 표시
 				})
 			}
 		}
@@ -1127,12 +1131,21 @@ const sendGPTOSSHarmonyChat = async ({
 
 		// 7. Agent 모드: 도구 호출 처리
 		if (chatMode === 'agent' && parsed.toolCalls.length > 0) {
-			// 도구 호출이 있는 경우
-			// TODO: 실제 도구 실행 로직은 기존 Agent 시스템과 연동 필요
+			// 첫 번째 도구 호출을 기존 시스템과 호환되는 형식으로 변환
+			const firstToolCall = parsed.toolCalls[0]
+			const toolCall = {
+				id: generateUuid(),
+				name: firstToolCall.name,
+				rawParams: firstToolCall.params,
+				isDone: true,
+				doneParams: Object.keys(firstToolCall.params)
+			}
+			
 			onFinalMessage({
-				fullText: `도구 호출 감지됨: ${parsed.toolCalls.map(tc => tc.name).join(', ')}\n\n${parsed.finalResponse || fullResponse}`,
+				fullText: parsed.finalResponse || fullResponse,
 				fullReasoning: parsed.reasoning,
-				anthropicReasoning: null
+				anthropicReasoning: null,
+				toolCall: toolCall
 			})
 		} else {
 			// 8. 일반 응답 처리
