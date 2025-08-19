@@ -1088,7 +1088,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	const EditSymbol = mode === 'display' ? Pencil : X
 
 	// OKDS: Inline drag and drop handlers for UserMessageComponent
-	const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 
@@ -1100,10 +1100,17 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			return;
 		}
 
-		console.log(`[OKDS Drag&Drop UserMessage] Processing ${files.length} files:`, files.map(f => f.path || f.name));
+		console.log(`[OKDS Drag&Drop UserMessage] Processing ${files.length} files:`, files.map(f => {
+			// In browser environment, File object doesn't have 'path' property
+			// We need to get the file path from the electron environment if available
+			const anyFile = f as any;
+			return anyFile.path || f.name;
+		}));
 
 		for (const file of files) {
-			const filePath = file.path || file.name;
+			// In browser environment, File object doesn't have 'path' property
+			const anyFile = file as any;
+			const filePath = anyFile.path || file.name;
 			console.log(`[OKDS Drag&Drop UserMessage] Adding file: ${filePath}`);
 
 			try {
@@ -1115,16 +1122,16 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 		}
 	}, [commandService]);
 
-	const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 		e.dataTransfer.dropEffect = 'copy';
 	}, []);
 
-	const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 	}, []);
 
-	const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 	}, []);
 
@@ -1210,10 +1217,10 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				fnsRef={textAreaFnsRef}
 				multiline={true}
 				// OKDS: Drag and drop handlers
-				onDrop={handleFileDrop}
-				onDragOver={handleDragOver}
-				onDragEnter={handleDragEnter}
-				onDragLeave={handleDragLeave}
+				onDrop={handleFileDrop as React.DragEventHandler<HTMLTextAreaElement>}
+				onDragOver={handleDragOver as React.DragEventHandler<HTMLTextAreaElement>}
+				onDragEnter={handleDragEnter as React.DragEventHandler<HTMLTextAreaElement>}
+				onDragLeave={handleDragLeave as React.DragEventHandler<HTMLTextAreaElement>}
 			/>
 		</VoidChatArea>
 	}
@@ -2936,7 +2943,7 @@ export const SidebarChat = () => {
 	const chatThreadsService = accessor.get('IChatThreadService')
 
 	// OKDS: Inline drag and drop handlers
-	const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 
@@ -3081,17 +3088,17 @@ export const SidebarChat = () => {
 		}
 	}, [chatThreadsService]);
 
-	const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 		e.dataTransfer.dropEffect = 'copy';
 	}, []);
 
-	const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 		// OKDS: Border removed - no visual feedback
 	}, []);
 
-	const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+	const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement | HTMLDivElement>) => {
 		e.preventDefault();
 		// OKDS: Border removed - no visual feedback
 	}, [])
@@ -3232,38 +3239,42 @@ export const SidebarChat = () => {
 			overflow-y-auto
 			${previousMessagesHTML.length === 0 && !displayContentSoFar ? 'hidden' : ''}
 		`}
-		// OKDS: Drag and drop handlers for messages area
-		onDrop={handleFileDrop}
-		onDragOver={handleDragOver}
-		onDragEnter={handleDragEnter}
-		onDragLeave={handleDragLeave}
 	>
-		{/* previous messages */}
-		{previousMessagesHTML}
-		{currStreamingMessageHTML}
+		{/* OKDS: Wrapper div for drag and drop handlers */}
+		<div
+			className="w-full h-full"
+			onDrop={handleFileDrop as React.DragEventHandler<HTMLDivElement>}
+			onDragOver={handleDragOver as React.DragEventHandler<HTMLDivElement>}
+			onDragEnter={handleDragEnter as React.DragEventHandler<HTMLDivElement>}
+			onDragLeave={handleDragLeave as React.DragEventHandler<HTMLDivElement>}
+		>
+			{/* previous messages */}
+			{previousMessagesHTML}
+			{currStreamingMessageHTML}
 
-		{/* Generating tool */}
-		{generatingTool}
+			{/* Generating tool */}
+			{generatingTool}
 
-		{/* loading indicator */}
-		{isRunning === 'LLM' || isRunning === 'idle' && !toolIsGenerating ? <ProseWrapper>
-			{<IconLoading className='opacity-50 text-sm' />}
-		</ProseWrapper> : null}
+			{/* loading indicator */}
+			{isRunning === 'LLM' || isRunning === 'idle' && !toolIsGenerating ? <ProseWrapper>
+				{<IconLoading className='opacity-50 text-sm' />}
+			</ProseWrapper> : null}
 
 
-		{/* error message */}
-		{latestError === undefined ? null :
-			<div className='px-2 my-1'>
-				<ErrorDisplay
-					message={latestError.message}
-					fullError={latestError.fullError}
-					onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id) }}
-					showDismiss={true}
-				/>
+			{/* error message */}
+			{latestError === undefined ? null :
+				<div className='px-2 my-1'>
+					<ErrorDisplay
+						message={latestError.message}
+						fullError={latestError.fullError}
+						onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id) }}
+						showDismiss={true}
+					/>
 
-				<WarningBox className='text-sm my-2 mx-4' onClick={() => { commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID) }} text='Open settings' />
-			</div>
-		}
+					<WarningBox className='text-sm my-2 mx-4' onClick={() => { commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID) }} text='Open settings' />
+				</div>
+			}
+		</div>
 	</ScrollToBottomContainer>
 
 
@@ -3301,10 +3312,10 @@ export const SidebarChat = () => {
 			fnsRef={textAreaFnsRef}
 			multiline={true}
 			// OKDS: Drag and drop handlers
-			onDrop={handleFileDrop}
-			onDragOver={handleDragOver}
-			onDragEnter={handleDragEnter}
-			onDragLeave={handleDragLeave}
+			onDrop={handleFileDrop as React.DragEventHandler<HTMLTextAreaElement>}
+			onDragOver={handleDragOver as React.DragEventHandler<HTMLTextAreaElement>}
+			onDragEnter={handleDragEnter as React.DragEventHandler<HTMLTextAreaElement>}
+			onDragLeave={handleDragLeave as React.DragEventHandler<HTMLTextAreaElement>}
 		/>
 
 	</VoidChatArea>
@@ -3350,10 +3361,10 @@ export const SidebarChat = () => {
 		ref={sidebarRef}
 		className='w-full h-full max-h-full flex flex-col overflow-auto px-4'
 		// OKDS: Drag and drop handlers for landing page
-		onDrop={handleFileDrop}
-		onDragOver={handleDragOver}
-		onDragEnter={handleDragEnter}
-		onDragLeave={handleDragLeave}
+		onDrop={handleFileDrop as React.DragEventHandler<HTMLDivElement>}
+		onDragOver={handleDragOver as React.DragEventHandler<HTMLDivElement>}
+		onDragEnter={handleDragEnter as React.DragEventHandler<HTMLDivElement>}
+		onDragLeave={handleDragLeave as React.DragEventHandler<HTMLDivElement>}
 	>
 		<ErrorBoundary>
 			{landingPageInput}
@@ -3390,10 +3401,10 @@ export const SidebarChat = () => {
 		ref={sidebarRef}
 		className='w-full h-full flex flex-col overflow-hidden'
 		// OKDS: Drag and drop handlers for thread page
-		onDrop={handleFileDrop}
-		onDragOver={handleDragOver}
-		onDragEnter={handleDragEnter}
-		onDragLeave={handleDragLeave}
+		onDrop={handleFileDrop as React.DragEventHandler<HTMLDivElement>}
+		onDragOver={handleDragOver as React.DragEventHandler<HTMLDivElement>}
+		onDragEnter={handleDragEnter as React.DragEventHandler<HTMLDivElement>}
+		onDragLeave={handleDragLeave as React.DragEventHandler<HTMLDivElement>}
 	>
 
 		<ErrorBoundary>
