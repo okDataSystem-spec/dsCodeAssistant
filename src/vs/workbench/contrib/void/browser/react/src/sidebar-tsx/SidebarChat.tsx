@@ -1022,6 +1022,7 @@ const SimplifiedToolHeader = ({
 const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, currCheckpointIdx, _scrollToBottom }: { chatMessage: ChatMessage & { role: 'user' }, messageIdx: number, currCheckpointIdx: number | undefined, isCheckpointGhost: boolean, _scrollToBottom: (() => void) | null }) => {
 
 	const accessor = useAccessor()
+	const commandService = accessor.get('ICommandService')
 	const chatThreadsService = accessor.get('IChatThreadService')
 
 	// global state
@@ -1085,6 +1086,47 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	}
 
 	const EditSymbol = mode === 'display' ? Pencil : X
+
+	// OKDS: Inline drag and drop handlers for UserMessageComponent
+	const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+		e.stopPropagation();
+
+		console.log('[OKDS Drag&Drop UserMessage] Drop event triggered');
+
+		const files = Array.from(e.dataTransfer.files);
+		if (files.length === 0) {
+			console.log('[OKDS Drag&Drop UserMessage] No files detected in drop');
+			return;
+		}
+
+		console.log(`[OKDS Drag&Drop UserMessage] Processing ${files.length} files:`, files.map(f => f.path || f.name));
+
+		for (const file of files) {
+			const filePath = file.path || file.name;
+			console.log(`[OKDS Drag&Drop UserMessage] Adding file: ${filePath}`);
+
+			try {
+				await commandService.executeCommand('void.sidebar.addFileToContext', filePath);
+				console.log(`[OKDS Drag&Drop UserMessage] Successfully added: ${filePath}`);
+			} catch (error) {
+				console.error(`[OKDS Drag&Drop UserMessage] Failed to add file ${filePath}:`, error);
+			}
+		}
+	}, [commandService]);
+
+	const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+	}, []);
+
+	const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+	}, []);
+
+	const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+		e.preventDefault();
+	}, []);
 
 
 	let chatbubbleContents: React.ReactNode
