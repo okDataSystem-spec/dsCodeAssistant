@@ -15,6 +15,7 @@ import { IVoidCommandBarService } from './voidCommandBarService.js'
 import { computeDirectoryTree1Deep, IDirectoryStrService, stringifyDirectoryTree1Deep } from '../common/directoryStrService.js'
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js'
 import { timeout } from '../../../../base/common/async.js'
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js'
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
 import { IVoidSettingsService } from '../common/voidSettingsService.js'
@@ -353,12 +354,29 @@ export class ToolsService implements IToolsService {
 					workspaceContextService.getWorkspace().folders.map(f => f.uri)
 					: [searchInFolder]
 
+				// 파일 타입별 스마트 검색
+				const isJavaSearch = queryStr.includes('class') || queryStr.includes('Service') || queryStr.includes('DAO');
+				const includePattern = isJavaSearch ? '**/*.java' : undefined;
+				
 				const query = queryBuilder.text({
 					pattern: queryStr,
 					isRegExp: isRegex,
+					maxResults: 200,  // 결과를 좀 더 늘림
+					includePattern: includePattern,  // Java 검색시 .java 파일만
+					excludePattern: {
+						// 최소한의 제외 패턴만
+						'**/*.class': true,
+						'**/*.jar': true,
+						'**/target/**': true,
+						'**/build/**': true,
+					}
 				}, searchFolders)
 
-				const data = await searchService.textSearch(query, CancellationToken.None)
+				// 타임아웃 설정으로 무한 대기 방지
+				const cts = new CancellationTokenSource();
+				setTimeout(() => cts.cancel(), 30000); // 30초 타임아웃
+
+				const data = await searchService.textSearch(query, cts.token)
 
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1)
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1

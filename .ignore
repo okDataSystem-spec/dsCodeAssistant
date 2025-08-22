@@ -1,0 +1,18 @@
+# Ignore all files by default
+*
+
+# Only include specific file types
+!*.java
+!*.dbio
+!*.xml
+!*/
+
+# Still exclude common directories
+node_modules/
+dist/
+build/
+target/
+.git/
+logs/
+temp/
+cache/

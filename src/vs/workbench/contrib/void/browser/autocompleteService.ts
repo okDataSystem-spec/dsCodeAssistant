@@ -8,7 +8,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { EndOfLinePreference, ITextModel } from '../../../../editor/common/model.js';
 import { Position } from '../../../../editor/common/core/position.js';
-import { InlineCompletion, } from '../../../../editor/common/languages.js';
+import { InlineCompletion, CompletionItemKind, CompletionTriggerKind } from '../../../../editor/common/languages.js';
 import { Range } from '../../../../editor/common/core/range.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { isCodeEditor } from '../../../../editor/browser/editorBrowser.js';
@@ -21,6 +21,8 @@ import { isWindows } from '../../../../base/common/platform.js';
 import { IVoidSettingsService } from '../common/voidSettingsService.js';
 import { FeatureName } from '../common/voidSettingsTypes.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { ITreeParserService } from './treeParserService.js';
 // import { IContextGatheringService } from './contextGatheringService.js';
 
 
@@ -758,9 +760,37 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// const relevantSnippetsList = this._contextGatheringService.getCachedSnippets();
 		// const relevantSnippets = relevantSnippetsList.map((text) => `${text}`).join('\n-------------------------------\n')
 		// console.log('@@---------------------\n' + relevantSnippets)
-		const relevantContext = ''
+		
+		// LSP를 활용한 향상된 컨텍스트 수집
+		const lspContext = await this.gatherLSPContext(model, position);
+		console.log('OKDS LSP>> 컨텍스트 수집 완료:', lspContext);
+		
+		const relevantContext = lspContext
 
-		const { shouldGenerate, predictionType, llmPrefix, llmSuffix, stopTokens } = getCompletionOptions(prefixAndSuffix, relevantContext, justAcceptedAutocompletion)
+		let { shouldGenerate, predictionType, llmPrefix, llmSuffix, stopTokens } = getCompletionOptions(prefixAndSuffix, relevantContext, justAcceptedAutocompletion);
+		
+		// LSP 컨텍스트를 프롬프트에 추가
+		if (lspContext && lspContext.length > 0) {
+			// 컨텍스트를 프롬프트 앞에 추가
+			const contextPrompt = `/* Context Information:
+${lspContext}
+*/
+
+`;
+			llmPrefix = contextPrompt + llmPrefix;
+			console.log('OKDS LSP>> 프롬프트에 컨텍스트 추가됨');
+			
+			// 최종 프롬프트 로깅 - 전체 내용 표시
+			console.log('OKDS FINAL>> ===== 최종 LLM 프롬프트 =====');
+			console.log('OKDS FINAL>> [PREDICTION TYPE]:', predictionType);
+			console.log('OKDS FINAL>> --- PREFIX 시작 (총 ' + llmPrefix.length + '자) ---');
+			console.log(llmPrefix);
+			console.log('OKDS FINAL>> --- PREFIX 끝 ---');
+			console.log('OKDS FINAL>> --- SUFFIX 시작 (총 ' + llmSuffix.length + '자) ---');
+			console.log(llmSuffix);
+			console.log('OKDS FINAL>> --- SUFFIX 끝 ---');
+			console.log('OKDS FINAL>> ================================');
+		}
 
 		if (!shouldGenerate) return []
 
@@ -894,7 +924,8 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		@IEditorService private readonly _editorService: IEditorService,
 		@IModelService private readonly _modelService: IModelService,
 		@IVoidSettingsService private readonly _settingsService: IVoidSettingsService,
-		@IConvertToLLMMessageService private readonly _convertToLLMMessageService: IConvertToLLMMessageService
+		@IConvertToLLMMessageService private readonly _convertToLLMMessageService: IConvertToLLMMessageService,
+		@ITreeParserService private readonly _treeParserService: ITreeParserService
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
 		super()
@@ -941,6 +972,356 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		}))
 	}
 
+	// LSP와 Tree-sitter를 활용한 향상된 컨텍스트 수집
+	private async gatherLSPContext(model: ITextModel, position: Position): Promise<string> {
+		console.log('OKDS LSP>> 컨텍스트 수집 시작');
+		const contextParts: string[] = [];
+		
+		try {
+			// 현재 라인과 커서 위치 정보
+			const currentLine = model.getLineContent(position.lineNumber);
+			const textBeforeCursor = currentLine.substring(0, position.column - 1);
+			const lines = model.getValue().split('\n');
+			
+			// 점(.) 연산자를 사용 중인지 확인
+			const isDotAccess = textBeforeCursor.includes('.');
+			const lastDotIndex = textBeforeCursor.lastIndexOf('.');
+			let objectName = '';
+			
+			if (isDotAccess && lastDotIndex > 0) {
+				// 점 앞의 객체명 추출
+				const beforeDot = textBeforeCursor.substring(0, lastDotIndex);
+				const objMatch = beforeDot.match(/(\w+)\s*$/);
+				if (objMatch) {
+					objectName = objMatch[1];
+					contextParts.push(`Accessing object: ${objectName}`);
+					console.log('OKDS LSP>> 객체 접근:', objectName);
+					
+					// 객체의 타입 찾기
+					for (let i = position.lineNumber - 2; i >= Math.max(0, position.lineNumber - 50); i--) {
+						const line = lines[i];
+						// Java 변수 선언 패턴
+						const varDeclPattern = new RegExp(`(\\w+(?:<[^>]+>)?)\\s+${objectName}\\s*=`);
+						const match = line.match(varDeclPattern);
+						if (match) {
+							const objectType = match[1];
+							contextParts.push(`${objectName} is type: ${objectType}`);
+							// VO/DTO인 경우 특별 표시
+							if (objectType.match(/VO$|DTO$|Model$|Entity$/)) {
+								contextParts.push(`${objectType} has getter/setter methods for its fields`);
+							}
+							console.log('OKDS LSP>> 객체 타입:', objectType);
+							break;
+						}
+					}
+				}
+			}
+			
+			// 1. Hover Provider로 타입 정보 가져오기
+			const hoverInfo = await this.getHoverInfo(model, position);
+			if (hoverInfo) {
+				contextParts.push(hoverInfo);
+				console.log('OKDS LSP>> Hover 정보 수집됨');
+			}
+			
+			// 2. 향상된 Completion Provider로 메소드 목록
+			const completions = await this.getEnhancedCompletions(model, position, isDotAccess);
+			if (completions.length > 0) {
+				contextParts.push(...completions);
+				console.log('OKDS LSP>> 사용 가능한 완성 목록:', completions.length, '개');
+			}
+			
+			// 3. Definition Provider로 정의 위치 찾기
+			const definitions = await this.getDefinitions(model, position);
+			if (definitions) {
+				contextParts.push(`Definitions: ${definitions}`);
+				console.log('OKDS LSP>> 정의 위치:', definitions);
+			}
+			
+			// 4. 최근 변수 선언 찾기
+			const recentVariables = this.findRecentVariables(lines, position.lineNumber);
+			if (recentVariables.length > 0) {
+				contextParts.push('Recent variables:');
+				contextParts.push(...recentVariables);
+				console.log('OKDS LSP>> 최근 변수:', recentVariables.length, '개');
+			}
+			
+			// 5. Tree-sitter로 메소드 컨텍스트 분석
+			const methodContext = await this._treeParserService.getMethodContext(model, position);
+			if (methodContext) {
+				contextParts.push(`Current method: ${methodContext.methodName}`);
+				
+				if (methodContext.parameters.length > 0) {
+					const params = methodContext.parameters.map(p => `${p.type} ${p.name}`).join(', ');
+					contextParts.push(`Method parameters: ${params}`);
+				}
+				
+				if (methodContext.localVariables.length > 0) {
+					const localVars = methodContext.localVariables.map(v => `${v.type} ${v.name}`).join(', ');
+					contextParts.push(`Local variables: ${localVars}`);
+				}
+				
+				if (methodContext.returnType) {
+					contextParts.push(`Return type: ${methodContext.returnType}`);
+				}
+				
+				console.log('OKDS Tree>> 메소드 컨텍스트 수집 완료');
+			}
+			
+		} catch (error) {
+			console.error('OKDS LSP>> 컨텍스트 수집 오류:', error);
+		}
+		
+		const finalContext = contextParts.join('\n');
+		console.log('OKDS LSP>> === 최종 수집된 컨텍스트 ===');
+		console.log(finalContext);
+		console.log('OKDS LSP>> ==============================');
+		
+		return finalContext;
+	}
+	
+	// Hover 정보 가져오기
+	private async getHoverInfo(model: ITextModel, position: Position): Promise<string | null> {
+		const providers = this._langFeatureService.hoverProvider.ordered(model);
+		
+		for (const provider of providers) {
+			try {
+				const hover = await provider.provideHover(model, position, CancellationToken.None);
+				if (hover?.contents) {
+					// contents를 문자열로 변환
+					const contents = Array.isArray(hover.contents) ? hover.contents : [hover.contents];
+					const textContent = contents.map(c => {
+						if (typeof c === 'string') return c;
+						if ('value' in c) return c.value;
+						return '';
+					}).filter(s => s).join('\n');
+					
+					if (textContent) {
+						return textContent;
+					}
+				}
+			} catch (e) {
+				console.error('OKDS LSP>> Hover provider 오류:', e);
+			}
+		}
+		return null;
+	}
+	
+	// Completion 정보 가져오기 (개선된 버전)
+	private async getCompletions(model: ITextModel, position: Position): Promise<string[]> {
+		const providers = this._langFeatureService.completionProvider.ordered(model);
+		const completions: string[] = [];
+		
+		// 현재 줄 분석하여 변수명 추출
+		const currentLine = model.getLineContent(position.lineNumber);
+		const beforeCursor = currentLine.substring(0, position.column - 1);
+		const isMethodCall = beforeCursor.includes('.');
+		
+		console.log('OKDS LSP>> Completion 수집, 메소드 호출:', isMethodCall);
+		
+		for (const provider of providers) {
+			try {
+				const suggestions = await provider.provideCompletionItems(
+					model,
+					position,
+					{} as any,
+					CancellationToken.None
+				);
+				
+				if (suggestions?.suggestions) {
+					// 메소드 호출인 경우 메소드만 필터링
+					const filtered = isMethodCall ? 
+						suggestions.suggestions.filter(s => {
+							// CompletionItemKind.Method = 0, Function = 1
+							return s.kind === 0 || s.kind === 1 || s.kind === 2; // Method, Function, Constructor
+						}) : suggestions.suggestions;
+					
+					filtered.forEach(s => {
+						const label = typeof s.label === 'string' ? s.label : s.label.label;
+						const detail = s.detail || '';
+						const doc = typeof s.documentation === 'string' ? s.documentation : '';
+						
+						// 더 자세한 정보 포함
+						if (detail && detail.includes('(')) {
+							// 메소드 시그니처가 있는 경우
+							completions.push(`${label}${detail}`);
+						} else if (detail) {
+							completions.push(`${label}:${detail}`);
+						} else {
+							completions.push(label);
+						}
+					});
+				}
+			} catch (e) {
+				console.error('OKDS LSP>> Completion provider 오류:', e);
+			}
+		}
+		
+		console.log('OKDS LSP>> 필터링된 완성 항목:', completions.slice(0, 5));
+		return completions;
+	}
+	
+	// Definition 정보 가져오기
+	private async getDefinitions(model: ITextModel, position: Position): Promise<string | null> {
+		const providers = this._langFeatureService.definitionProvider.ordered(model);
+		
+		for (const provider of providers) {
+			try {
+				const definitions = await provider.provideDefinition(
+					model,
+					position,
+					CancellationToken.None
+				);
+				
+				if (definitions) {
+					const defs = Array.isArray(definitions) ? definitions : [definitions];
+					const defInfo = defs.map(d => {
+						return `${d.uri.fsPath}:${d.range.startLineNumber}`;
+					}).join(', ');
+					
+					if (defInfo) {
+						return defInfo;
+					}
+				}
+			} catch (e) {
+				console.error('OKDS LSP>> Definition provider 오류:', e);
+			}
+		}
+		return null;
+	}
+	
+	// 향상된 Completion 정보 가져오기
+	private async getEnhancedCompletions(model: ITextModel, position: Position, isDotAccess: boolean): Promise<string[]> {
+		const completionInfo: string[] = [];
+		try {
+			const providers = this._langFeatureService.completionProvider.ordered(model);
+			
+			for (const provider of providers) {
+				const result = await provider.provideCompletionItems(
+					model,
+					position,
+					{ triggerKind: CompletionTriggerKind.Invoke, triggerCharacter: isDotAccess ? '.' : undefined },
+					CancellationToken.None
+				);
+				
+				if (result?.suggestions) {
+					// getter/setter 메소드 우선 필터링
+					const getterSetters = result.suggestions
+						.filter(s => {
+							const label = typeof s.label === 'string' ? s.label : s.label.label;
+							return label.startsWith('get') || label.startsWith('set');
+						})
+						.slice(0, 10);
+					
+					if (getterSetters.length > 0) {
+						completionInfo.push('Available getters/setters:');
+						for (const item of getterSetters) {
+							const label = typeof item.label === 'string' ? item.label : item.label.label;
+							const detail = item.detail || '';
+							if (detail) {
+								completionInfo.push(`  - ${label}: ${detail}`);
+							} else {
+								completionInfo.push(`  - ${label}()`);
+							}
+						}
+					}
+					
+					// 일반 메소드
+					const methods = result.suggestions
+						.filter(s => {
+							const label = typeof s.label === 'string' ? s.label : s.label.label;
+							return (s.kind === CompletionItemKind.Method || 
+									s.kind === CompletionItemKind.Function) &&
+								   !label.startsWith('get') && !label.startsWith('set');
+						})
+						.slice(0, 5);
+					
+					if (methods.length > 0) {
+						completionInfo.push('Other methods:');
+						for (const item of methods) {
+							const label = typeof item.label === 'string' ? item.label : item.label.label;
+							const detail = item.detail || '';
+							completionInfo.push(`  - ${label}${detail ? ': ' + detail : ''}`);
+						}
+					}
+				}
+			}
+		} catch (e) {
+			console.error('OKDS LSP>> Completion provider 오류:', e);
+		}
+		
+		return completionInfo;
+	}
+	
+	// 최근 변수 선언 찾기
+	private findRecentVariables(lines: string[], currentLine: number): string[] {
+		const variables: string[] = [];
+		const startLine = Math.max(0, currentLine - 20);
+		
+		for (let i = currentLine - 1; i >= startLine; i--) {
+			const line = lines[i];
+			
+			// Java 변수 선언 패턴
+			const javaPattern = /^\s*(?:final\s+)?(\w+(?:<[^>]+>)?)\s+(\w+)\s*=/;
+			const javaMatch = line.match(javaPattern);
+			if (javaMatch) {
+				const varType = javaMatch[1];
+				const varName = javaMatch[2];
+				
+				// VO/DTO 클래스인지 체크
+				if (varType.match(/VO$|DTO$|Model$|Entity$/)) {
+					variables.push(`  - ${varName}: ${varType} (has getters/setters)`);
+				} else {
+					variables.push(`  - ${varName}: ${varType}`);
+				}
+			}
+			
+			// TypeScript/JavaScript 변수 선언
+			const tsPattern = /^\s*(?:const|let|var)\s+(\w+)(?:\s*:\s*(\w+(?:<[^>]+>)?))?.*=/;
+			const tsMatch = line.match(tsPattern);
+			if (tsMatch) {
+				variables.push(`  - ${tsMatch[1]}: ${tsMatch[2] || 'any'}`);
+			}
+			
+			// 최대 10개까지만
+			if (variables.length >= 10) break;
+		}
+		
+		return variables;
+	}
+	
+	// 변수 타입 추출 (간단한 패턴 매칭)
+	private extractVariableType(model: ITextModel, position: Position, currentLine: string): string | null {
+		// 현재 줄에서 변수명 추출
+		const beforeCursor = currentLine.substring(0, position.column - 1);
+		const varMatch = beforeCursor.match(/(\w+)\s*\.?\s*$/);
+		
+		if (varMatch) {
+			const varName = varMatch[1];
+			
+			// 위로 스캔하면서 변수 선언 찾기
+			for (let i = position.lineNumber - 1; i >= Math.max(0, position.lineNumber - 50); i--) {
+				const line = model.getLineContent(i + 1); // lineNumber는 1-based
+				
+				// Java/TypeScript 변수 선언 패턴
+				const patterns = [
+					new RegExp(`(\\w+(?:<[^>]+>)?)\\s+${varName}\\s*[=;]`), // Type varName
+					new RegExp(`const\\s+${varName}\\s*:\\s*(\\w+(?:<[^>]+>)?)`), // const varName: Type
+					new RegExp(`let\\s+${varName}\\s*:\\s*(\\w+(?:<[^>]+>)?)`), // let varName: Type
+					new RegExp(`var\\s+${varName}\\s*:\\s*(\\w+(?:<[^>]+>)?)`) // var varName: Type
+				];
+				
+				for (const pattern of patterns) {
+					const match = line.match(pattern);
+					if (match) {
+						return match[1];
+					}
+				}
+			}
+		}
+		
+		return null;
+	}
 
 }
 

@@ -18,6 +18,9 @@ import './quickEditActions.js'
 // register Autocomplete
 import './autocompleteService.js'
 
+// register Tree-sitter parser service
+import './treeParserService.js'
+
 // register Context services
 // import './contextGatheringService.js'
 // import './contextUserChangesService.js'

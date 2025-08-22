@@ -1,0 +1,17 @@
+# Ignore everything first
+*
+
+# Only include specific file types
+!*.java
+!*.dbio  
+!*.xml
+!*/
+
+# Exclude directories that should never be searched
+node_modules/
+.git/
+target/
+build/
+dist/
+logs/
+temp/
