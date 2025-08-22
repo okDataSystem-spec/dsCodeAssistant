@@ -1108,7 +1108,7 @@ ${lspContext}
 	}
 	
 	// Completion 정보 가져오기 (개선된 버전)
-	private async getCompletions(model: ITextModel, position: Position): Promise<string[]> {
+	private async _getCompletions(model: ITextModel, position: Position): Promise<string[]> {
 		const providers = this._langFeatureService.completionProvider.ordered(model);
 		const completions: string[] = [];
 		
@@ -1139,7 +1139,7 @@ ${lspContext}
 					filtered.forEach(s => {
 						const label = typeof s.label === 'string' ? s.label : s.label.label;
 						const detail = s.detail || '';
-						const doc = typeof s.documentation === 'string' ? s.documentation : '';
+						// const doc = typeof s.documentation === 'string' ? s.documentation : '';
 						
 						// 더 자세한 정보 포함
 						if (detail && detail.includes('(')) {
@@ -1291,7 +1291,7 @@ ${lspContext}
 	}
 	
 	// 변수 타입 추출 (간단한 패턴 매칭)
-	private extractVariableType(model: ITextModel, position: Position, currentLine: string): string | null {
+	private _extractVariableType(model: ITextModel, position: Position, currentLine: string): string | null {
 		// 현재 줄에서 변수명 추출
 		const beforeCursor = currentLine.substring(0, position.column - 1);
 		const varMatch = beforeCursor.match(/(\w+)\s*\.?\s*$/);

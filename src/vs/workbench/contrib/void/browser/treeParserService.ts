@@ -40,10 +40,10 @@ export interface MethodContext {
 export class TreeParserService extends Disposable implements ITreeParserService {
 	_serviceBrand: undefined;
 	
-	private parser: any = null;
-	private javaLanguage: any = null;
-	private typeScriptLanguage: any = null;
-	private initialized = false;
+	private _parser: any = null;
+	private _javaLanguage: any = null;
+	private _typeScriptLanguage: any = null;
+	private _initialized = false;
 	
 	constructor() {
 		super();
@@ -54,7 +54,7 @@ export class TreeParserService extends Disposable implements ITreeParserService 
 	private async initializeParser() {
 		// VS Code 환경에서는 web-tree-sitter를 직접 로드하기 어려우므로
 		// 정규식 기반 파싱을 기본으로 사용
-		this.initialized = true;
+		this._initialized = true;
 		console.log('OKDS Tree>> 정규식 기반 파싱 모드로 초기화');
 	}
 	

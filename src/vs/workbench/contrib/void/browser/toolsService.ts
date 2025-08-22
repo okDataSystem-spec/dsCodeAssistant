@@ -22,6 +22,353 @@ import { IVoidSettingsService } from '../common/voidSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
 
 
+// Dify Helper Functions
+type QueryType = 'className' | 'methodName' | 'businessLogic' | 'fileName' | 'general';
+
+function analyzeQueryType(query: string): QueryType {
+	// 파일명 검색 (확장자 포함)
+	if (query.match(/\.(java|dbio|xml)$/)) {
+		return 'fileName';
+	}
+	
+	// 한글 포함 - 비즈니스 로직 검색
+	if (/[가-힣]/.test(query)) {
+		return 'businessLogic';
+	}
+	
+	// 메소드명 패턴 (get/set/is로 시작, camelCase)
+	if (/^(get|set|is|has|add|remove|update|delete|find|search)[A-Z]/.test(query)) {
+		return 'methodName';
+	}
+	
+	// 클래스명 패턴 (PascalCase, Service/DAO/VO/DTO 등으로 끝남)
+	if (/^[A-Z][a-zA-Z0-9]*(Service|DAO|VO|DTO|Controller|Manager|Handler|Helper|Util)$/.test(query)) {
+		return 'className';
+	}
+	
+	// PascalCase 일반
+	if (/^[A-Z][a-z][a-zA-Z0-9]*$/.test(query)) {
+		return 'className';
+	}
+	
+	return 'general';
+}
+
+interface DifyResultItem {
+	metadata: {
+		score: number;
+		document_name?: string;
+		[key: string]: any;
+	};
+	title: string;
+	content: string;
+}
+
+interface DifySearchResult {
+	uris: URI[];
+	confidence: 'high' | 'medium' | 'low';  // 결과 신뢰도
+	avgScore: number;  // 평균 유사도 점수
+}
+
+async function searchWithDify(
+	query: string, 
+	queryType: QueryType,
+	voidSettingsService: IVoidSettingsService
+): Promise<DifySearchResult> {
+	const settings = voidSettingsService.state.settingsOfProvider.dify;
+	
+	if (!settings?.apiKey) {
+		console.log('OKDS DIFY WARNING>> API key not configured');
+		console.log('OKDS DIFY WARNING>> Skipping Dify search');
+		return { uris: [], confidence: 'low', avgScore: 0 };
+	}
+	
+	const requestBody = {
+		query: query,
+		inputs: {
+			bGubun: "Search",
+			search_type: queryType,
+			file_type: "java,dbio,xml",  // 모든 타입 포함
+			query_embedding: true,
+			return_count: 20,
+			similarity_threshold: 0.7
+		},
+		response_mode: "streaming",
+		user: `void_${Date.now()}`  // 타임스탬프를 사용자 ID로 사용
+	};
+	
+	try {
+		console.log('OKDS DIFY TODO>> Starting Dify search');
+		console.log('OKDS DIFY TODO>> Query:', query);
+		console.log('OKDS DIFY TODO>> Type:', queryType);
+		console.log('OKDS DIFY TODO>> Endpoint:', settings.endpoint);
+		console.log('OKDS DIFY TODO>> Request Body:', JSON.stringify(requestBody, null, 2));
+		
+		const response = await fetch(`${settings.endpoint}/v1/chat-messages`, {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${settings.apiKey}`,
+				'Content-Type': 'application/json',
+				'Accept': 'application/json',
+				'User-Agent': 'Void-Assistant/1.0'
+			},
+			body: JSON.stringify(requestBody)
+		});
+		
+		if (!response.ok) {
+			console.error('OKDS DIFY ERROR>> API request failed');
+			console.error('OKDS DIFY ERROR>> Status:', response.status);
+			console.error('OKDS DIFY ERROR>> StatusText:', response.statusText);
+			return { uris: [], confidence: 'low', avgScore: 0 };
+		}
+		
+		// SSE 스트림 파싱
+		const reader = response.body?.getReader();
+		const decoder = new TextDecoder();
+		const results: URI[] = [];
+		const scores: number[] = [];
+		let buffer = '';
+		
+		if (!reader) {
+			console.error('[Dify] No response body reader');
+			return { uris: [], confidence: 'low', avgScore: 0 };
+		}
+		
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split('\n');
+			buffer = lines.pop() || ''; // 마지막 불완전한 라인은 버퍼에 보관
+			
+			for (const line of lines) {
+				if (line.trim() === '') continue; // 빈 줄 무시
+				
+				console.log('OKDS DIFY RAW>> Line:', line);
+				
+				if (line.startsWith('data: ')) {
+					try {
+						const dataStr = line.slice(6);
+						console.log('OKDS DIFY RAW>> Parsing data:', dataStr);
+						const data = JSON.parse(dataStr);
+						
+						// Dify 지식 검색 결과 형식 처리
+						if (data.result && Array.isArray(data.result)) {
+							console.log('OKDS DIFY PARSE>> Found knowledge search result array:', data.result.length, 'items');
+							data.result.forEach((item: DifyResultItem, index: number) => {
+								// content에서 file_path 추출
+								const filePathMatch = item.content.match(/file_path:\s*([^\n]+)/);
+								if (filePathMatch && filePathMatch[1]) {
+									const filePath = filePathMatch[1].trim();
+									results.push(URI.file(filePath));
+									console.log(`OKDS DIFY PARSE>> Item ${index + 1}: ${filePath} (score: ${item.metadata?.score?.toFixed(3) || 'N/A'})`);
+									
+									// 유사도 점수 저장
+									if (item.metadata?.score) {
+										scores.push(item.metadata.score);
+									}
+								}
+							});
+						}
+						// 기존 workflow_finished 형식도 지원
+						else if (data.event === 'workflow_finished' && data.data?.outputs?.answer) {
+							console.log('OKDS DIFY PARSE>> Found workflow_finished event');
+							console.log('OKDS DIFY PARSE>> Answer:', data.data.outputs.answer.substring(0, 200));
+							const searchResults = parseFilePathsFromAnswer(data.data.outputs.answer);
+							console.log('OKDS DIFY PARSE>> Extracted results:', searchResults.length);
+							
+							searchResults.forEach(result => {
+								console.log('OKDS DIFY PARSE>> Path:', result.path, 'Score:', result.score);
+								results.push(URI.file(result.path));
+								scores.push(result.score);
+							});
+							
+							if (searchResults.length > 0) {
+								const avgScoreCalc = searchResults.reduce((sum, r) => sum + r.score, 0) / searchResults.length;
+								console.log('OKDS DIFY PARSE>> Average score:', avgScoreCalc);
+							}
+						}
+						// 다른 이벤트 타입 로깅
+						else if (data.event) {
+							console.log('OKDS DIFY PARSE>> Other event type:', data.event);
+							if (data.answer) {
+								console.log('OKDS DIFY PARSE>> Has answer, length:', data.answer.length);
+							}
+						}
+						// 일반 message 형식도 지원
+						else if ((data.event === 'message' || data.event === 'agent_message') && data.answer) {
+							console.log('OKDS DIFY PARSE>> Found message event with answer');
+							console.log('OKDS DIFY PARSE>> Answer:', data.answer.substring(0, 200)); // 처음 200자만
+							
+							// JSON 형식의 결과인지 확인
+							try {
+								const jsonResult = JSON.parse(data.answer);
+								console.log('OKDS DIFY PARSE>> Parsed as JSON successfully');
+								if (jsonResult.result && Array.isArray(jsonResult.result)) {
+									console.log('OKDS DIFY PARSE>> Found result array in answer:', jsonResult.result.length, 'items');
+									jsonResult.result.forEach((item: DifyResultItem) => {
+										const filePathMatch = item.content.match(/file_path:\s*([^\n]+)/);
+										if (filePathMatch && filePathMatch[1]) {
+											const filePath = filePathMatch[1].trim();
+											results.push(URI.file(filePath));
+											
+											if (item.metadata?.score) {
+												scores.push(item.metadata.score);
+											}
+										}
+									});
+								}
+							} catch (e) {
+								// JSON이 아닌 경우 기존 방식으로 파싱
+								console.log('OKDS DIFY PARSE>> Not JSON, trying text parsing');
+								const fileResults = parseFilePathsFromAnswer(data.answer);
+								console.log('OKDS DIFY PARSE>> Extracted paths from text:', fileResults.length);
+								fileResults.forEach(fileInfo => {
+									console.log('OKDS DIFY PARSE>> Text path:', fileInfo.path, 'Score:', fileInfo.score);
+									results.push(URI.file(fileInfo.path));
+									scores.push(fileInfo.score);
+								});
+							}
+						}
+					} catch (e) {
+						console.error('[Dify] Failed to parse SSE data:', e);
+					}
+				}
+			}
+		}
+		
+		// 평균 유사도 점수 계산
+		const avgScore = scores.length > 0 
+			? scores.reduce((a, b) => a + b, 0) / scores.length 
+			: 0;
+		
+		// 유사도 점수 기반 신뢰도 판단
+		let confidence: 'high' | 'medium' | 'low';
+		if (avgScore >= 0.8 || results.length >= 10) {
+			confidence = 'high';
+		} else if (avgScore >= 0.7 || results.length >= 3) {
+			confidence = 'medium';
+		} else {
+			confidence = 'low';
+		}
+		
+		console.log('OKDS DIFY RESULT>> Search completed');
+		console.log('OKDS DIFY RESULT>> Found:', results.length, 'files');
+		console.log('OKDS DIFY RESULT>> Avg Score:', avgScore.toFixed(3));
+		console.log('OKDS DIFY RESULT>> Confidence:', confidence);
+		if (scores.length > 0) {
+			console.log('OKDS DIFY RESULT>> Individual Scores:', scores.map(s => s.toFixed(3)).join(', '));
+		}
+		if (results.length > 0) {
+			console.log('OKDS DIFY RESULT>> Files:', results.map(uri => uri.fsPath).join('\n  '));
+		}
+		
+		return { uris: results, confidence, avgScore };
+		
+	} catch (error) {
+		console.error('OKDS DIFY ERROR>> Search failed:', error);
+		return { uris: [], confidence: 'low', avgScore: 0 };
+	}
+}
+
+// 응답에서 파일 경로와 스코어 추출
+interface DifyFileInfo {
+	path: string;
+	score: number;
+}
+
+function parseFilePathsFromAnswer(answer: string): DifyFileInfo[] {
+	const results: DifyFileInfo[] = [];
+	const seenPaths = new Set<string>();
+	
+	try {
+		// workflow_finished 형식 처리 (전체가 하나의 JSON)
+		if (answer.trim().startsWith('{') && answer.includes('"metadata"')) {
+			try {
+				const obj = JSON.parse(answer);
+				if (obj.content && obj.metadata) {
+					// file_path 찾기
+					const filePathMatch = obj.content.match(/file_path:\s*([^\n]+)/);
+					if (filePathMatch) {
+						let filePath = filePathMatch[1].trim();
+						// 경로 정규화 (앞의 / 제거)
+						filePath = filePath.replace(/^\/+/, '');
+						
+						if (!seenPaths.has(filePath)) {
+							seenPaths.add(filePath);
+							results.push({
+								path: filePath,
+								score: obj.metadata.score || 0
+							});
+							console.log('OKDS DIFY PARSE DETAIL>> Extracted:', filePath, 'Score:', obj.metadata.score);
+						}
+					}
+				}
+			} catch (e) {
+				console.log('OKDS DIFY PARSE DETAIL>> Single JSON parse failed:', e);
+			}
+		}
+		
+		// 여러 JSON 객체가 줄바꿈으로 구분된 경우
+		if (results.length === 0 && answer.includes('"file_path"')) {
+			// JSON 객체들을 개별적으로 파싱
+			const jsonObjects = answer.split('\n').filter(line => line.trim().startsWith('{'));
+			
+			for (const jsonStr of jsonObjects) {
+				try {
+					const obj = JSON.parse(jsonStr);
+					if (obj.content && obj.metadata) {
+						// file_path 찾기
+						const filePathMatch = obj.content.match(/file_path:\s*([^\n]+)/);
+						if (filePathMatch) {
+							let filePath = filePathMatch[1].trim();
+							// 경로 정규화 (앞의 / 제거)
+							filePath = filePath.replace(/^\/+/, '');
+							
+							if (!seenPaths.has(filePath)) {
+								seenPaths.add(filePath);
+								results.push({
+									path: filePath,
+									score: obj.metadata.score || 0
+								});
+							}
+						}
+					}
+				} catch (e) {
+					// 개별 JSON 파싱 실패 시 무시
+				}
+			}
+		}
+		
+		// 기존 패턴 매칭 (fallback)
+		if (results.length === 0) {
+			const lines = answer.split('\n');
+			for (const line of lines) {
+				const patterns = [
+					/([A-Za-z]:)?[\/\\]?[\w\-\.\/\\]+\.(java|dbio|xml)(?::\d+)?/g
+				];
+				
+				for (const pattern of patterns) {
+					const matches = line.matchAll(pattern);
+					for (const match of matches) {
+						let path = match[0].replace(/:\d+$/, '').replace(/^\/+/, '');
+						if (!seenPaths.has(path)) {
+							seenPaths.add(path);
+							results.push({ path, score: 0 });
+						}
+					}
+				}
+			}
+		}
+	} catch (error) {
+		console.error('OKDS DIFY PARSE ERROR>>', error);
+	}
+	
+	return results;
+}
+
+
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] }
 type CallBuiltinTool = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T]) => Promise<{ result: BuiltinToolResultType[T] | Promise<BuiltinToolResultType[T]>, interruptTool?: () => void }> }
@@ -350,42 +697,124 @@ export class ToolsService implements IToolsService {
 			},
 
 			search_for_files: async ({ query: queryStr, isRegex, searchInFolder, pageNumber }) => {
-				const searchFolders = searchInFolder === null ?
-					workspaceContextService.getWorkspace().folders.map(f => f.uri)
-					: [searchInFolder]
-
-				// 파일 타입별 스마트 검색
-				const isJavaSearch = queryStr.includes('class') || queryStr.includes('Service') || queryStr.includes('DAO');
-				const includePattern = isJavaSearch ? '**/*.java' : undefined;
+				// 1. 쿼리 타입 분석
+				const queryType = analyzeQueryType(queryStr);
+				console.log('OKDS SEARCH START>> Query:', queryStr);
+				console.log('OKDS SEARCH START>> Type:', queryType);
+				console.log('OKDS SEARCH START>> IsRegex:', isRegex);
 				
-				const query = queryBuilder.text({
-					pattern: queryStr,
-					isRegExp: isRegex,
-					maxResults: 200,  // 결과를 좀 더 늘림
-					includePattern: includePattern,  // Java 검색시 .java 파일만
-					excludePattern: {
-						// 최소한의 제외 패턴만
-						'**/*.class': true,
-						'**/*.jar': true,
-						'**/target/**': true,
-						'**/build/**': true,
+				// 2. Dify 검색 시도 (정규식이 아니고, 적합한 쿼리 타입인 경우)
+				let difyResult: DifySearchResult = { uris: [], confidence: 'low', avgScore: 0 };
+				let shouldUseRipgrep = true;  // 기본적으로 ripgrep 사용
+				
+				if (!isRegex && (queryType === 'className' || queryType === 'methodName' || queryType === 'businessLogic')) {
+					console.log('OKDS SEARCH TODO>> Will attempt Dify search for', queryType);
+					difyResult = await searchWithDify(queryStr, queryType, voidSettingsService);
+					
+					// 유사도 점수 기반으로 ripgrep 사용 여부 결정
+					if (difyResult.avgScore >= 0.75 && difyResult.uris.length > 0) {
+						// 높은 유사도 (0.75 이상): Dify 결과만 사용
+						shouldUseRipgrep = false;
+						console.log('OKDS SEARCH DECISION>> High similarity:', difyResult.avgScore.toFixed(3));
+						console.log('OKDS SEARCH DECISION>> Strategy: Dify ONLY');
+					} else if (difyResult.avgScore >= 0.65 && difyResult.uris.length >= 3) {
+						// 중간 유사도 (0.65-0.75) + 충분한 결과: Dify만 사용
+						shouldUseRipgrep = false;
+						console.log('OKDS SEARCH DECISION>> Medium similarity:', difyResult.avgScore.toFixed(3));
+						console.log('OKDS SEARCH DECISION>> Strategy: Dify ONLY (sufficient results)');
+					} else if (difyResult.uris.length === 0) {
+						// Dify 결과 없음: ripgrep만 사용
+						console.log('OKDS SEARCH DECISION>> No Dify results');
+						console.log('OKDS SEARCH DECISION>> Strategy: Ripgrep ONLY');
+					} else {
+						// 낮은 유사도: 둘 다 사용
+						console.log('OKDS SEARCH DECISION>> Low similarity:', difyResult.avgScore.toFixed(3));
+						console.log('OKDS SEARCH DECISION>> Strategy: Dify + Ripgrep MERGE');
 					}
-				}, searchFolders)
+				} else {
+					console.log('OKDS SEARCH TODO>> Skipping Dify (regex or unsuitable type)');
+				}
+				
+				// 3. 필요한 경우에만 Ripgrep 검색 실행
+				let ripgrepUris: URI[] = [];
+				
+				if (shouldUseRipgrep) {
+					console.log('OKDS RIPGREP START>> Executing ripgrep search');
+					
+					const searchFolders = searchInFolder === null ?
+						workspaceContextService.getWorkspace().folders.map(f => f.uri)
+						: [searchInFolder]
 
-				// 타임아웃 설정으로 무한 대기 방지
-				const cts = new CancellationTokenSource();
-				setTimeout(() => cts.cancel(), 30000); // 30초 타임아웃
+					// 파일 타입별 스마트 검색 - .dbio, .xml 추가
+					const isCodeSearch = queryStr.includes('class') || queryStr.includes('Service') || 
+						queryStr.includes('DAO') || queryStr.includes('Controller') || 
+						queryStr.includes('Manager') || queryStr.includes('Helper');
+					
+					// .java, .dbio, .xml 모두 포함
+					const includePattern = isCodeSearch ? '**/*.{java,dbio,xml}' : undefined;
+					
+					const query = queryBuilder.text({
+						pattern: queryStr,
+						isRegExp: isRegex,
+					}, searchFolders, {
+						maxResults: 200,  // 결과를 200개로 제한
+						includePattern: includePattern,  // 코드 검색시 .java, .dbio, .xml 파일
+						excludePattern: [
+							// 최소한의 제외 패턴만 (배열 형식)
+							{ pattern: '**/*.class' },
+							{ pattern: '**/*.jar' },
+							{ pattern: '**/target/**' },
+							{ pattern: '**/build/**' },
+							{ pattern: '**/node_modules/**' },
+							{ pattern: '**/.git/**' },
+						]
+					})
 
-				const data = await searchService.textSearch(query, cts.token)
+					// 타임아웃 설정으로 무한 대기 방지
+					const cts = new CancellationTokenSource();
+					setTimeout(() => cts.cancel(), 30000); // 30초 타임아웃
 
-				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1)
-				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1
-				const uris = data.results
-					.slice(fromIdx, toIdx + 1) // paginate
-					.map(({ resource, results }) => resource)
+					const data = await searchService.textSearch(query, cts.token);
+					ripgrepUris = data.results.map(({ resource }) => resource);
+					console.log('OKDS RIPGREP RESULT>> Found:', ripgrepUris.length, 'files');
+				}
+				
+				// 4. 결과 병합 (필요한 경우에만)
+				let allUris: URI[];
+				
+				if (!shouldUseRipgrep) {
+					// Dify 결과만 사용
+					allUris = difyResult.uris;
+					console.log('OKDS SEARCH FINAL>> Using Dify results ONLY');
+					console.log('OKDS SEARCH FINAL>> Total files:', allUris.length);
+				} else if (difyResult.uris.length === 0) {
+					// Ripgrep 결과만 사용
+					allUris = ripgrepUris;
+					console.log('OKDS SEARCH FINAL>> Using Ripgrep results ONLY');
+					console.log('OKDS SEARCH FINAL>> Total files:', allUris.length);
+				} else {
+					// 둘 다 있는 경우 병합 (Dify 우선, 중복 제거)
+					allUris = [...difyResult.uris];
+					const difyPaths = new Set(difyResult.uris.map(uri => uri.fsPath));
+					
+					for (const uri of ripgrepUris) {
+						if (!difyPaths.has(uri.fsPath)) {
+							allUris.push(uri);
+						}
+					}
+					console.log('OKDS SEARCH FINAL>> MERGED results');
+					console.log('OKDS SEARCH FINAL>> Dify files:', difyResult.uris.length);
+					console.log('OKDS SEARCH FINAL>> Ripgrep files:', ripgrepUris.length);
+					console.log('OKDS SEARCH FINAL>> Total after merge:', allUris.length);
+				}
 
-				const hasNextPage = (data.results.length - 1) - toIdx >= 1
-				return { result: { queryStr, uris, hasNextPage } }
+				// 5. 페이지네이션
+				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1);
+				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1;
+				const uris = allUris.slice(fromIdx, toIdx + 1);
+				const hasNextPage = (allUris.length - 1) - toIdx >= 1;
+				
+				return { result: { queryStr, uris, hasNextPage } };
 			},
 			search_in_file: async ({ uri, query, isRegex }) => {
 				await voidModelService.initializeModel(uri);
